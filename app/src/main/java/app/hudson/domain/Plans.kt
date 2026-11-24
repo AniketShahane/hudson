@@ -70,3 +70,40 @@ object LivePlan {
     /** When the next refresh of a running session is due. */
     fun nextTick(nowMs: Long, endsAtMs: Long): Long? = (nowMs + TICK_MS).takeIf { it < endsAtMs }
 }
+
+/**
+ * When a widget's big minutes number next changes. The poster widget is one drawn picture, so
+ * it is redrawn exactly when "4" becomes "3"; inside the last minute it shows NOW until the
+ * train leaves, which the list refresh handles.
+ */
+object Redraw {
+    fun nextAt(boards: List<Board>, nowMs: Long): Long? = boards
+        .mapNotNull { it.next?.atMs }
+        .mapNotNull { at ->
+            val left = at - nowMs
+            if (left <= 60_000) null else nowMs + (left % 60_000).let { if (it < 500) it + 60_000 else it } + 250
+        }
+        .minOrNull()
+}
+
+/** Ink for text on a line colour: black on yellow, white on red, blue and green. */
+object Ink {
+    fun luminance(argb: Long): Double {
+        fun ch(shift: Int): Double {
+            val c = ((argb shr shift) and 0xFF) / 255.0
+            return if (c <= 0.03928) c / 12.92 else Math.pow((c + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0)
+    }
+
+    /**
+     * True when black text reads clearly better than white on [argb]. White is preferred
+     * (it is the poster look) unless black has a clear lead, so PATH red keeps white type.
+     */
+    fun wantsDarkText(argb: Long): Boolean {
+        val l = luminance(argb)
+        val onWhite = 1.05 / (l + 0.05)
+        val onBlack = (l + 0.05) / 0.05
+        return onBlack > onWhite * 1.4
+    }
+}

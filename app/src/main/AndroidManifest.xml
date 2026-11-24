@@ -42,5 +42,9 @@
         <receiver
             android:name=".notify.LiveActionReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".widget.MinuteTickReceiver"
+            android:exported="false" />
     </application>
 </manifest>

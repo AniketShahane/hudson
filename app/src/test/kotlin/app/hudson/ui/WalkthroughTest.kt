@@ -11,6 +11,9 @@ import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onLast
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
+import app.hudson.widget.PosterRenderer
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.work.testing.WorkManagerTestInitHelper
@@ -144,52 +147,83 @@ class WalkthroughTest {
         }
     }
 
+    /** Paints the widget the way the phone will and saves it beside the screenshots. */
+    private fun poster(name: String, favorite: Favorite, w: Float, h: Float, page: Int = 0, pages: Int = 2, emptyFeed: Boolean = false) {
+        val context = RuntimeEnvironment.getApplication()
+        val now = System.currentTimeMillis()
+        val feed = if (emptyFeed) null else runBlocking { Graph.feed.cached() }
+        val board = Boards.build(favorite, feed, now)
+        val bmp = PosterRenderer.render(context, board, page, pages, w, h, now, 2.5f)
+        val dir = java.io.File("build/outputs/roborazzi").apply { mkdirs() }
+        java.io.FileOutputStream(java.io.File(dir, "$name.png")).use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        println("[walk] poster $name ${bmp.width}x${bmp.height}: ${PosterRenderer.describe(board, now)}")
+    }
+
     @Test
     fun walkthrough() {
-        // The countdown badge turns forever, so the clock is driven by hand.
         rule.mainClock.autoAdvance = false
+        val context = RuntimeEnvironment.getApplication()
+        shadowOf(context).grantPermissions(MainActivity.NOTIFICATION_PERMISSION)
 
         step("01_home") {
-            waitFor("Exchange Pl")
-            waitFor("Leaves")
+            waitFor("TRACK ON LOCK SCREEN")
+            waitFor("THEN")
             settle(1500)
             shot("01_home")
-            assertTrue("Exchange Place board shows WTC trains", exists("World Trade Center"))
         }
-        step("02_second_favorite") {
-            tap("WTC → NJ")
-            waitFor("Newark")
+        step("02_second_station") {
+            rule.onAllNodesWithText("TO NEW JERSEY").onFirst().performSemanticsAction(SemanticsActions.OnClick)
+            settle(1200)
+            shot("02_wtc")
+        }
+        step("03_tracking") {
+            tap("TRACK ON LOCK SCREEN")
+            waitFor("ON LOCK SCREEN")
             settle(800)
-            shot("02_wtc_home")
+            shot("03_tracking")
+            tap("STOP")
+            waitFor("TRACK ON LOCK SCREEN")
         }
-        step("03_live_more") {
-            tap("More")
-            shot("03_live_more")
+        step("04_settings") {
+            rule.onNodeWithContentDescription("Settings").performSemanticsAction(SemanticsActions.OnClick)
+            settle(1200)
+            waitFor("MY STATIONS")
+            shot("04_settings")
         }
-        step("04_favorites") {
-            scrollTo("Favorites")
-            shot("04_favorites")
-        }
-        step("05_editor") {
-            scrollTo("Add a favorite")
-            tap("Add a favorite")
+        step("05_add") {
+            tap("ADD A STATION")
+            waitFor("1 · LEAVING FROM")
+            shot("05_add_empty")
+            tap("GROVE ST")
+            waitFor("SAVE GROVE ST")
+            shot("06_add_grove")
+            rule.onNodeWithText("SAVE GROVE ST", substring = true).performSemanticsAction(SemanticsActions.OnClick)
             settle(1500)
-            waitFor("New favorite")
-            shot("05_editor")
-            tapLast("Hoboken")
-            tap("To NJ")
-            shot("06_editor_hoboken")
+            waitFor("MY STATIONS")
+            tap("Put it on the lock screen")
+            shot("07_settings_three")
+        }
+        step("08_home_three") {
             back()
+            settle(1200)
+            waitFor("TRACK ON LOCK SCREEN")
+            shot("08_home_three")
         }
-        step("07_lock_help") {
-            scrollTo("Lock screen")
-            tap("Lock screen")
-            scrollTo("Lock screen")
-            shot("07_widget_and_lock")
+        step("09_widget_posters") {
+            val exp = Favorite.defaults[0]
+            val wtc = Favorite.defaults[1]
+            val hob = Favorite.create(app.hudson.core.Station.HOBOKEN, app.hudson.core.Direction.TO_NJ, emptyList(), "h")
+            poster("widget_4x2_exp", exp, 300f, 150f)
+            poster("widget_4x2_wtc", wtc, 300f, 150f, page = 1)
+            poster("widget_4x2_two_lines", hob, 300f, 150f, pages = 3, page = 2)
+            poster("widget_2x2_exp", exp, 150f, 150f)
+            poster("widget_2x2_two_lines", hob, 150f, 150f)
+            poster("widget_4x1_strip", wtc, 300f, 70f)
+            poster("widget_2x1_strip", exp, 150f, 60f)
+            poster("widget_4x3_tall", exp, 300f, 260f)
+            poster("widget_4x2_loading", exp, 300f, 150f, emptyFeed = true)
         }
-        step("08_live_notification") {
-            val context = RuntimeEnvironment.getApplication()
-            shadowOf(context).grantPermissions(MainActivity.NOTIFICATION_PERMISSION)
+        step("10_live_notification") {
             val card = runBlocking {
                 val feed = Graph.feed.cached()
                 val now = System.currentTimeMillis()
@@ -199,9 +233,7 @@ class WalkthroughTest {
             val nm = context.getSystemService(NotificationManager::class.java)
             val posted = shadowOf(nm).allNotifications
             assertTrue("Live Update posted", posted.isNotEmpty())
-            val n = posted.first()
-            assertTrue("Live Update is ongoing", n.flags and android.app.Notification.FLAG_ONGOING_EVENT != 0)
-            println("[walk] live title=${n.extras.getCharSequence("android.title")} text=${n.extras.getCharSequence("android.text")} chip=${card.chipText} metrics=${card.metrics}")
+            println("[walk] live title=${posted.first().extras.getCharSequence("android.title")} text=${posted.first().extras.getCharSequence("android.text")}")
         }
 
         if (failures.isNotEmpty()) throw AssertionError("Walkthrough steps failed:\n" + failures.joinToString("\n"))

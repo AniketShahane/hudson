@@ -201,3 +201,25 @@ class PlanTest {
         assertEquals("Updated 8:00", TimeText.updated(now, Fixture.zone))
     }
 }
+
+class PosterTest {
+    @Test fun redrawsWhenTheMinuteDigitChanges() {
+        val now = 1_000_000L
+        val feed = app.hudson.data.feed.FeedSnapshot(
+            listOf(app.hudson.data.feed.Arrival(Station.EXCHANGE_PLACE, Direction.TO_NY, Station.WTC, "World Trade Center", now + 252_000, listOf(0xFFD93A30L))),
+            now,
+        )
+        val board = Boards.build(Favorite.defaults[0], feed, now)
+        // 4:12 left: the "4" becomes "3" in 12 s.
+        assertEquals(now + 12_000 + 250, app.hudson.domain.Redraw.nextAt(listOf(board), now))
+        // Inside the last minute the poster says NOW; no redraw is booked.
+        assertNull(app.hudson.domain.Redraw.nextAt(listOf(board), now + 200_000))
+    }
+
+    @Test fun inkFlipsOnYellow() {
+        assertTrue(app.hudson.domain.Ink.wantsDarkText(0xFFFF9900L))
+        assertTrue(!app.hudson.domain.Ink.wantsDarkText(0xFFD93A30L))
+        assertTrue(app.hudson.domain.Ink.wantsDarkText(0xFF65C100L))
+        assertTrue(!app.hudson.domain.Ink.wantsDarkText(0xFF141414L))
+    }
+}
