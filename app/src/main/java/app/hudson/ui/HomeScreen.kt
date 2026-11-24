@@ -361,7 +361,7 @@ private fun LiveCardSection(liveOn: Boolean, minutes: Int, onStart: () -> Unit, 
                     Text("Live Updates are off for this app, so the card stays in the shade.", style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = {
                         context.startActivity(
-                            Intent(AndroidSettings.ACTION_MANAGE_APP_PROMOTED_NOTIFICATIONS)
+                            Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS)
                                 .putExtra(AndroidSettings.EXTRA_APP_PACKAGE, context.packageName)
                                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                         )

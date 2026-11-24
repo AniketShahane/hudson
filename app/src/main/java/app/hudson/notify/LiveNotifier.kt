@@ -66,7 +66,7 @@ object LiveNotifier {
 
         val first = card.chipWhenMs
         if (first != null && first > now) {
-            builder.setWhen(first).setShowWhen(true).setUsesChronometer(true).setChronometerCountdown(true)
+            builder.setWhen(first).setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true)
         } else {
             builder.setShowWhen(false)
         }
