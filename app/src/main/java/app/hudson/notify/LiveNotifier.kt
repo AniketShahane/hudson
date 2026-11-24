@@ -40,8 +40,14 @@ object LiveNotifier {
     }
 
     /** Whether the user lets this app's Live Updates reach the status bar and lock screen. */
-    fun canPromote(context: Context): Boolean =
-        Build.VERSION.SDK_INT < 36 || context.getSystemService(NotificationManager::class.java).canPostPromotedNotifications()
+    fun canPromote(context: Context): Boolean = !promotionApis() ||
+        runCatching { context.getSystemService(NotificationManager::class.java).canPostPromotedNotifications() }.getOrDefault(true)
+
+    /**
+     * The promotion APIs arrived in a minor release of Android 16 (36.1), so plain API 36 may lack
+     * them. They are certain on Android 17, which is what the phone runs; 36.x is tried and tolerated.
+     */
+    private fun promotionApis(): Boolean = Build.VERSION.SDK_INT >= 36
 
     fun post(context: Context, card: LiveCard) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -71,9 +77,13 @@ object LiveNotifier {
             builder.setShowWhen(false)
         }
 
-        if (Build.VERSION.SDK_INT >= 36) {
-            builder.setRequestPromotedOngoing(true)
-            card.chipText?.let { builder.setShortCriticalText(it) }
+        if (promotionApis()) {
+            try {
+                builder.setRequestPromotedOngoing(true)
+                card.chipText?.let { builder.setShortCriticalText(it) }
+            } catch (_: NoSuchMethodError) {
+                // Android 16 before QPR: an ordinary ongoing notification.
+            }
         }
 
         if (Build.VERSION.SDK_INT >= 37 && card.metrics.isNotEmpty()) {
