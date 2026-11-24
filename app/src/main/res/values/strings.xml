@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Hudson</string>
+    <string name="widget_name">PATH trains</string>
+    <string name="widget_description">Next PATH trains from your favorite stations. Tap to switch favorites.</string>
+    <string name="channel_live">Commute Live Update</string>
+    <string name="channel_live_description">Next trains for a trip you started, on the lock screen and in the Now Bar.</string>
+    <string name="live_next_favorite">Next favorite</string>
+    <string name="live_stop">Stop</string>
+</resources>
