@@ -82,19 +82,21 @@ class TrainWidget : GlanceAppWidget() {
             val index = currentState<Preferences>()[FavoriteIndexKey] ?: 0
             val pos = Math.floorMod(index, favorites.size)
             val now = System.currentTimeMillis()
-            Poster(Boards.build(favorites[pos], feed, now), pos, favorites.size, now)
+            // Read on every repaint, so a new wallpaper or dark mode shows the next time the card is drawn.
+            val palette = if (settings.matchPhone) PhoneColors.palette(LocalContext.current) else null
+            Poster(Boards.build(favorites[pos], feed, now), pos, favorites.size, now, palette)
         }
     }
 }
 
 /** [now] is a parameter so that a repaint a minute later is never skipped as "nothing changed". */
 @Composable
-private fun Poster(board: Board, pos: Int, count: Int, now: Long) {
+private fun Poster(board: Board, pos: Int, count: Int, now: Long, palette: PosterPalette?) {
     val context = LocalContext.current
     val size = LocalSize.current
     val w = size.width.value
     val h = size.height.value
-    val bitmap = PosterRenderer.render(context, board, pos, count, w, h, now, paintScale(context, w, h))
+    val bitmap = PosterRenderer.render(context, board, pos, count, w, h, now, paintScale(context, w, h), palette)
     val open = actionStartActivity(
         Intent(context, MainActivity::class.java)
             .putExtra(MainActivity.EXTRA_FAVORITE, pos)
@@ -106,7 +108,7 @@ private fun Poster(board: Board, pos: Int, count: Int, now: Long) {
     Box(
         modifier = GlanceModifier.fillMaxSize()
             .cornerRadius(android.R.dimen.system_app_widget_background_radius)
-            .background(Color(PosterRenderer.ground(board, w, h)))
+            .background(Color(PosterRenderer.ground(board, w, h, palette)))
             .clickable(if (several) actionRunCallback<CycleFavoriteAction>() else open),
     ) {
         Image(

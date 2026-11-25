@@ -2,6 +2,7 @@ package app.hudson.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -92,6 +93,8 @@ data class Settings(
     val liveMinutes: Int = 30,
     val liveUntilMs: Long = 0,
     val liveFavorite: Int = 0,
+    /** Draw the app and widget in the phone's Material You colours rather than the line colours. */
+    val matchPhone: Boolean = false,
 )
 
 private val Context.store by preferencesDataStore(name = "settings")
@@ -103,6 +106,7 @@ class SettingsStore(private val context: Context) {
         val liveMinutes = intPreferencesKey("live_minutes")
         val liveUntil = longPreferencesKey("live_until")
         val liveFavorite = intPreferencesKey("live_favorite")
+        val matchPhone = booleanPreferencesKey("match_phone")
     }
 
     private fun Preferences.toSettings() = Settings(
@@ -111,6 +115,7 @@ class SettingsStore(private val context: Context) {
         liveMinutes = this[Keys.liveMinutes] ?: 30,
         liveUntilMs = this[Keys.liveUntil] ?: 0,
         liveFavorite = this[Keys.liveFavorite] ?: 0,
+        matchPhone = this[Keys.matchPhone] ?: false,
     )
 
     val flow: Flow<Settings> = context.store.data.map { it.toSettings() }
@@ -125,6 +130,7 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.liveMinutes] = next.liveMinutes
             prefs[Keys.liveUntil] = next.liveUntilMs
             prefs[Keys.liveFavorite] = next.liveFavorite
+            prefs[Keys.matchPhone] = next.matchPhone
         }
     }
 }

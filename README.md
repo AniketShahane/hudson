@@ -8,6 +8,8 @@ on One UI 9 (Android 17). Personal, sideloaded.
 - **Widget** (Glance, painted at the exact size the launcher gives): one-row strip, square, wide poster, and later trains listed underneath when it is tall.
   The next train is a big countdown drawn by a system `Chronometer`, so it ticks every second
   without waking the app; later trains are clock times, which never go stale.
+- **Colors**: Settings → Colors switches the app and widget between the PATH line colors and your
+  phone's Material You colors (from the wallpaper, light and dark); the line then shows as an edge bar.
 - **Favorites**: default *Exchange Pl → NY* and *WTC → NJ*. Add any station, direction and
   optional terminals in the app. Tap the widget to step through them (each widget
   remembers its own); tap the station name, top-left by the small arrow, to open the app on that station.

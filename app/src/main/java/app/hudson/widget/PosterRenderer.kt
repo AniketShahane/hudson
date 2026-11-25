@@ -34,6 +34,7 @@ import app.hudson.domain.TimeText
 object PosterRenderer {
     private const val NIGHT = 0xFF141414.toInt()
     private const val PAPER = 0xFFF2EFE8.toInt()
+    private const val LINE_BAR = 7f
 
     @Volatile private var display: Typeface? = null
 
@@ -53,12 +54,14 @@ object PosterRenderer {
     }
 
     /** The colour behind the picture, so a launcher that sizes the widget oddly never shows a gap. */
-    fun ground(board: Board, widthDp: Float, heightDp: Float): Int {
-        val next = board.next ?: return NIGHT
-        return if (PosterLayout.plan(widthDp, heightDp, board.later.size).kind == PosterLayout.Kind.STRIP) NIGHT else color(next.colors, 0)
+    fun ground(board: Board, widthDp: Float, heightDp: Float, palette: PosterPalette? = null): Int {
+        val next = board.next ?: return palette?.panel ?: NIGHT
+        return if (PosterLayout.plan(widthDp, heightDp, board.later.size).kind == PosterLayout.Kind.STRIP) palette?.panel ?: NIGHT
+        else palette?.ground ?: color(next.colors, 0)
     }
 
-    fun render(context: Context, board: Board, page: Int, pages: Int, widthDp: Float, heightDp: Float, nowMs: Long, scale: Float): Bitmap {
+    /** [palette] null paints the line-colour poster; otherwise the phone's colours with the line as an edge bar. */
+    fun render(context: Context, board: Board, page: Int, pages: Int, widthDp: Float, heightDp: Float, nowMs: Long, scale: Float, palette: PosterPalette? = null): Bitmap {
         val w = widthDp.coerceAtLeast(60f)
         val h = heightDp.coerceAtLeast(40f)
         val bitmap = Bitmap.createBitmap((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
@@ -68,16 +71,16 @@ object PosterRenderer {
         val next = board.next
         val plan = PosterLayout.plan(w, h, board.later.size)
         when {
-            plan.kind == PosterLayout.Kind.STRIP -> strip(c, face, board, w, h, nowMs)
-            next == null -> empty(c, face, board, page, pages, w, h)
+            plan.kind == PosterLayout.Kind.STRIP -> strip(c, face, board, w, h, nowMs, palette)
+            next == null -> empty(c, face, board, page, pages, w, h, palette)
             else -> {
                 c.save()
                 c.clipRect(0f, 0f, w, plan.posterHeight)
                 val then = plan.rows == 0
-                if (plan.kind == PosterLayout.Kind.WIDE) wide(c, face, board, next, page, pages, w, plan.posterHeight, nowMs, then)
-                else square(c, face, board, next, page, pages, w, plan.posterHeight, nowMs)
+                if (plan.kind == PosterLayout.Kind.WIDE) wide(c, face, board, next, page, pages, w, plan.posterHeight, nowMs, then, palette)
+                else square(c, face, board, next, page, pages, w, plan.posterHeight, nowMs, palette)
                 c.restore()
-                if (plan.rows > 0) rows(c, face, board.later.take(plan.rows), plan.posterHeight, w, h, nowMs)
+                if (plan.rows > 0) rows(c, face, board.later.take(plan.rows), plan.posterHeight, w, h, nowMs, palette)
             }
         }
         return bitmap
@@ -85,12 +88,10 @@ object PosterRenderer {
 
     // ------------------------------------------------------------------------------------------
 
-    private fun wide(c: Canvas, face: Typeface, board: Board, next: Departure, page: Int, pages: Int, w: Float, h: Float, now: Long, withThen: Boolean) {
-        val ink = inkOn(next.colors.firstOrNull())
-        c.drawColor(color(next.colors, 0))
-        band(c, next.colors, w, h)
+    private fun wide(c: Canvas, face: Typeface, board: Board, next: Departure, page: Int, pages: Int, w: Float, h: Float, now: Long, withThen: Boolean, palette: PosterPalette?) {
+        val ink = fillCard(c, next, w, h, palette)
         val k = minOf(w / 300f, h / 150f).coerceIn(0.85f, 1.3f)
-        val pad = 18f * k
+        val pad = 18f * k + if (palette != null) 3f else 0f
         val bottom = h - 16f * k
         val barsW = pageBarsWidth(pages)
 
@@ -152,12 +153,10 @@ object PosterRenderer {
         pageBars(c, ink, page, pages, w - pad, 14f * k)
     }
 
-    private fun square(c: Canvas, face: Typeface, board: Board, next: Departure, page: Int, pages: Int, w: Float, h: Float, now: Long) {
-        val ink = inkOn(next.colors.firstOrNull())
-        c.drawColor(color(next.colors, 0))
-        band(c, next.colors, w, h)
+    private fun square(c: Canvas, face: Typeface, board: Board, next: Departure, page: Int, pages: Int, w: Float, h: Float, now: Long, palette: PosterPalette?) {
+        val ink = fillCard(c, next, w, h, palette)
         val k = (minOf(w, h) / 150f).coerceIn(0.8f, 1.3f)
-        val pad = 14f * k
+        val pad = 14f * k + if (palette != null) 5f else 0f
         val barsW = pageBarsWidth(pages)
 
         val y1 = 22f * k
@@ -193,18 +192,19 @@ object PosterRenderer {
     }
 
     /** Later trains on a dark panel under the poster. */
-    private fun rows(c: Canvas, face: Typeface, trains: List<Departure>, top: Float, w: Float, h: Float, now: Long) {
-        c.drawRect(0f, top, w, h, fill(NIGHT))
+    private fun rows(c: Canvas, face: Typeface, trains: List<Departure>, top: Float, w: Float, h: Float, now: Long, palette: PosterPalette?) {
+        val paper = palette?.panelInk ?: PAPER
+        c.drawRect(0f, top, w, h, fill(palette?.panel ?: NIGHT))
         val pad = if (w >= 200f) 18f else 14f
-        val time = text(face, PAPER, 16f)
-        val label = text(sansBold, PAPER, 11f).apply { letterSpacing = 0.12f; alpha = 190 }
-        val mins = text(sansBold, PAPER, 11.5f).apply { textAlign = Paint.Align.RIGHT }
+        val time = text(face, paper, 16f)
+        val label = text(sansBold, paper, 11f).apply { letterSpacing = 0.12f; alpha = 190 }
+        val mins = text(sansBold, paper, 11.5f).apply { textAlign = Paint.Align.RIGHT }
         val timeX = pad + 14f
         val labelX = timeX + time.measureText("12:00") + 12f
         var y = top + PosterLayout.ROWS_PADDING / 2f - 1f
         for (d in trains) {
             val base = y + PosterLayout.ROW_HEIGHT / 2f + 6f
-            c.drawRoundRect(RectF(pad, y + 7f, pad + 5f, y + PosterLayout.ROW_HEIGHT - 7f), 2.5f, 2.5f, fill(d.colors.firstOrNull()?.toInt() ?: PAPER))
+            c.drawRoundRect(RectF(pad, y + 7f, pad + 5f, y + PosterLayout.ROW_HEIGHT - 7f), 2.5f, 2.5f, fill(d.colors.firstOrNull()?.toInt() ?: paper))
             c.drawText(TimeText.clock(d.atMs), timeX, base, time)
             val count = TimeText.countdown(d.atMs, now).uppercase()
             c.drawText(count, w - pad, base - 1f, mins)
@@ -214,8 +214,9 @@ object PosterRenderer {
         }
     }
 
-    private fun strip(c: Canvas, face: Typeface, board: Board, w: Float, h: Float, now: Long) {
-        c.drawColor(NIGHT)
+    private fun strip(c: Canvas, face: Typeface, board: Board, w: Float, h: Float, now: Long, palette: PosterPalette?) {
+        val paper = palette?.panelInk ?: PAPER
+        c.drawColor(palette?.panel ?: NIGHT)
         val next = board.next
         val k = (h / 70f).coerceIn(0.8f, 1.25f)
         val bar = if (w >= 200f) 12f else 9f
@@ -226,18 +227,18 @@ object PosterRenderer {
         val left = bar + 12f * k
         val right = w - 14f * k
         val mid = h / 2f
-        val small = text(sansBold, PAPER, 10f * k).apply { letterSpacing = 0.16f; alpha = 180 }
-        val title = text(face, PAPER, (if (w >= 200f) 19f else 15.5f) * k)
+        val small = text(sansBold, paper, 10f * k).apply { letterSpacing = 0.16f; alpha = 180 }
+        val title = text(face, paper, (if (w >= 200f) 19f else 15.5f) * k)
         if (next == null) {
             fit(c, listOf(board.favorite.compact.uppercase(), board.favorite.station.code), small, left, mid - 6f * k, right - left, 8.5f)
             fit(c, listOf(emptyTitle(board.state)), title, left, mid + 14f * k, right - left, 11f)
             return
         }
         val minutes = TimeText.minutes(next.atMs, now)
-        val accent = next.colors.firstOrNull()?.toInt() ?: PAPER
+        val accent = palette?.accent ?: next.colors.firstOrNull()?.toInt() ?: paper
         val big = if (minutes == 0L) "NOW" else minutes.toString()
         val unitText = if (minutes == 0L) "" else "MIN"
-        val unit = text(sansBold, PAPER, 10.5f * k).apply { letterSpacing = 0.1f; textAlign = Paint.Align.RIGHT }
+        val unit = text(sansBold, paper, 10.5f * k).apply { letterSpacing = 0.1f; textAlign = Paint.Align.RIGHT }
         val unitW = if (unitText.isEmpty()) 0f else unit.measureText(unitText) + 4f * k
         val p = text(face, accent, 100f)
         val b = bigFit(p, big, maxInkW = w * (if (minutes == 0L) 0.36f else 0.3f), maxInkH = h * 0.56f)
@@ -250,23 +251,24 @@ object PosterRenderer {
         val clock = TimeText.clock(next.atMs)
         val mark = 6.5f * k
         val nameW = fit(c, listOf(board.favorite.compact.uppercase() + "  ·  " + clock, board.favorite.station.code + "  ·  " + clock, board.favorite.station.code), small, left, mid - 6f * k, colW - mark - 5f, 8.5f)
-        openMark(c, PAPER, left + nameW + 3f, mid - 6f * k, mark, 180)
+        openMark(c, paper, left + nameW + 3f, mid - 6f * k, mark, 180)
         fit(c, listOfNotNull(dest, dest.substringBefore(" VIA "), codeOf(next)), title, left, mid + 15f * k, colW, 11f)
     }
 
-    private fun empty(c: Canvas, face: Typeface, board: Board, page: Int, pages: Int, w: Float, h: Float) {
-        c.drawColor(NIGHT)
+    private fun empty(c: Canvas, face: Typeface, board: Board, page: Int, pages: Int, w: Float, h: Float, palette: PosterPalette?) {
+        val paper = palette?.panelInk ?: PAPER
+        c.drawColor(palette?.panel ?: NIGHT)
         val k = (minOf(w / 300f, h / 150f)).coerceIn(0.8f, 1.3f)
         val pad = 16f * k
-        val small = text(sansBold, PAPER, 11f * k).apply { letterSpacing = 0.16f; alpha = 190 }
+        val small = text(sansBold, paper, 11f * k).apply { letterSpacing = 0.16f; alpha = 190 }
         fit(c, listOf(board.favorite.compact.uppercase(), board.favorite.station.code), small, pad, 26f * k, w - 2 * pad - pageBarsWidth(pages) - 6f, 9f)
         val title = emptyTitle(board.state)
-        val p = text(face, PAPER, 100f)
+        val p = text(face, paper, 100f)
         val b = bigFit(p, title, maxInkW = w - 2 * pad, maxInkH = h * 0.24f)
         c.drawText(title, pad - b.left, h * 0.5f + -b.top / 2f, p)
-        val hint = text(sansMedium, PAPER, 11.5f * k).apply { alpha = 175 }
+        val hint = text(sansMedium, paper, 11.5f * k).apply { alpha = 175 }
         fit(c, listOf(emptyHint(board.state), ""), hint, pad, h - 16f * k, w - 2 * pad, 10f)
-        pageBars(c, PAPER, page, pages, w - pad, 14f * k)
+        pageBars(c, paper, page, pages, w - pad, 14f * k)
     }
 
     // ------------------------------------------------------------------------------------------
@@ -332,6 +334,23 @@ object PosterRenderer {
     }
 
     private fun pageBarsWidth(pages: Int): Float = if (pages < 2) 0f else 14f + (pages.coerceAtMost(6) - 1) * 8f
+
+    /**
+     * Fills the card and returns the ink to draw on it. The line-colour poster is the line's own
+     * colour, with a second line as a diagonal band; in the phone's colours the line is a bar down
+     * the left edge, split in two for a train on two lines.
+     */
+    private fun fillCard(c: Canvas, next: Departure, w: Float, h: Float, palette: PosterPalette?): Int {
+        if (palette == null) {
+            c.drawColor(color(next.colors, 0))
+            band(c, next.colors, w, h)
+            return inkOn(next.colors.firstOrNull())
+        }
+        c.drawColor(palette.ground)
+        val cols = next.colors.take(2)
+        cols.forEachIndexed { i, col -> c.drawRect(0f, h / cols.size * i, LINE_BAR, h / cols.size * (i + 1), fill(col.toInt())) }
+        return palette.ink
+    }
 
     /** A second line colour (a train running two routes) as a diagonal band across the card. */
     private fun band(c: Canvas, colors: List<Long>, w: Float, h: Float) {

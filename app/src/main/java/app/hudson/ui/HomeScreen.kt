@@ -182,6 +182,7 @@ fun HomeScreen(askNotificationsOnStart: Boolean = false) {
                     },
                     onRemove = { id -> save { cur -> cur.copy(favorites = cur.favorites.filterNot { it.id == id }, appFavorite = 0) } },
                     onMinutes = { m -> save { it.copy(liveMinutes = m) } },
+                    onMatchPhone = { on -> save { it.copy(matchPhone = on) } },
                 )
                 Screen.ADD -> AddScreen(
                     onClose = { screenName = Screen.SETTINGS.name },
@@ -283,9 +284,12 @@ private fun Hero(board: Board, now: Long, height: Int) {
     val s = SwissTheme.colors
     val next = board.next
     val colors = next?.colors.orEmpty()
-    val bg = colors.firstOrNull()?.let { Color(it.toInt()) } ?: s.ink
+    // Following the phone's colours, the card is a Material You container and the line is a bar down its edge.
+    val phone = s.hero != null && s.onHero != null && next != null
+    val bg = if (phone) s.hero!! else colors.firstOrNull()?.let { Color(it.toInt()) } ?: s.ink
     val ink = when {
         next == null -> s.paper
+        phone -> s.onHero!!
         Ink.wantsDarkText(colors.first()) -> NightInk
         else -> Color.White
     }
@@ -294,7 +298,8 @@ private fun Hero(board: Board, now: Long, height: Int) {
         Modifier.fillMaxWidth().height(height.dp).clip(RoundedCornerShape(28.dp)).background(bg)
             .clearAndSetSemantics { contentDescription = description },
     ) {
-        colors.getOrNull(1)?.let { second ->
+        if (phone) Box(Modifier.align(Alignment.CenterStart)) { LineBar(colors, width = 8, height = height) }
+        colors.getOrNull(1)?.takeIf { !phone }?.let { second ->
             Canvas(Modifier.fillMaxSize()) {
                 val path = Path().apply {
                     moveTo(0f, size.height * 0.72f)
@@ -407,6 +412,7 @@ private fun SettingsScreen(
     onReorder: (List<Favorite>) -> Unit,
     onRemove: (String) -> Unit,
     onMinutes: (Int) -> Unit,
+    onMatchPhone: (Boolean) -> Unit,
 ) {
     val s = SwissTheme.colors
     val context = LocalContext.current
@@ -419,6 +425,12 @@ private fun SettingsScreen(
         Spacer(Modifier.height(8.dp))
         OutlineBlock("ADD A STATION", R.drawable.ic_add, onAdd)
         Text("Drag ≡ to reorder. The widget steps through them in this order.", style = Type.body.copy(fontSize = 14.sp), color = s.muted, modifier = Modifier.padding(top = 8.dp, start = 4.dp))
+
+        SectionLabel("COLORS")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StationBlock(title = "LINE COLORS", subtitle = "RED, GREEN, BLUE…", selected = !settings.matchPhone, onClick = { onMatchPhone(false) }, modifier = Modifier.weight(1f))
+            StationBlock(title = "MATCH MY PHONE", subtitle = "FROM YOUR WALLPAPER", selected = settings.matchPhone, onClick = { onMatchPhone(true) }, modifier = Modifier.weight(1f))
+        }
 
         SectionLabel("LOCK SCREEN TRACKING LASTS")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -209,6 +209,20 @@ class WalkthroughTest {
             println("[walk] live title=${posted.first().extras.getCharSequence("android.title")} text=${posted.first().extras.getCharSequence("android.text")}")
         }
 
+        step("11_phone_colors") {
+            rule.onNodeWithContentDescription("Settings").performSemanticsAction(SemanticsActions.OnClick)
+            settle(1200)
+            waitFor("COLORS")
+            tap("MATCH MY PHONE")
+            settle(800)
+            shot("11_settings_phone_colors")
+            assertTrue("the choice is saved", runBlocking { Graph.settings.current().matchPhone })
+            back()
+            settle(1200)
+            waitFor("TRACK ON LOCK SCREEN")
+            shot("12_home_phone_colors")
+        }
+
         if (failures.isNotEmpty()) throw AssertionError("Walkthrough steps failed:\n" + failures.joinToString("\n"))
     }
 }

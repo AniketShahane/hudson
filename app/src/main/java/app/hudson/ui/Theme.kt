@@ -2,10 +2,13 @@ package app.hudson.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -13,6 +16,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -33,6 +37,12 @@ data class Swiss(
     val rule: Color,
     val block: Color,
     val alert: Color,
+    /**
+     * The next-train card when the app follows the phone's colours; null means the card takes the
+     * train's line colour, as on the poster.
+     */
+    val hero: Color? = null,
+    val onHero: Color? = null,
 )
 
 private val Light = Swiss(paper = Color(0xFFF2EFE8), ink = Color(0xFF141414), muted = Color(0xFF5E5A53), rule = Color(0xFFD9D4C9), block = Color(0xFFE6E1D6), alert = Color(0xFFD93A30))
@@ -58,11 +68,27 @@ object Type {
     val giant = TextStyle(fontFamily = Display, fontSize = 230.sp, lineHeight = 230.sp, letterSpacing = (-0.05).em, fontFeatureSettings = "tnum")
 }
 
+/** The same six roles filled from the phone's Material You colours (its wallpaper). */
+private fun swissFrom(cs: ColorScheme) = Swiss(
+    paper = cs.surface,
+    ink = cs.onSurface,
+    muted = cs.onSurfaceVariant,
+    rule = cs.outlineVariant,
+    block = cs.surfaceContainerHigh,
+    alert = cs.error,
+    hero = cs.primaryContainer,
+    onHero = cs.onPrimaryContainer,
+)
+
 @Composable
-fun HudsonTheme(content: @Composable () -> Unit) {
+fun HudsonTheme(matchPhone: Boolean = false, content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
-    val s = if (dark) Dark else Light
-    val scheme = if (dark) {
+    val phone = if (matchPhone) LocalContext.current.let { if (dark) dynamicDarkColorScheme(it) else dynamicLightColorScheme(it) } else null
+    val s = phone?.let(::swissFrom) ?: if (dark) Dark else Light
+    val scheme = if (phone != null) {
+        // Ink stays the primary so buttons and selected blocks keep the poster's black-on-paper logic.
+        phone.copy(primary = s.ink, onPrimary = s.paper, outline = s.ink, surfaceContainerLow = s.block)
+    } else if (dark) {
         darkColorScheme(primary = s.ink, onPrimary = s.paper, background = s.paper, surface = s.paper, onSurface = s.ink, onBackground = s.ink, surfaceContainerLow = s.block, outline = s.ink)
     } else {
         lightColorScheme(primary = s.ink, onPrimary = s.paper, background = s.paper, surface = s.paper, onSurface = s.ink, onBackground = s.ink, surfaceContainerLow = s.block, outline = s.ink)

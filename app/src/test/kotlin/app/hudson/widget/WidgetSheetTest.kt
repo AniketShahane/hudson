@@ -72,7 +72,16 @@ class WidgetSheetTest {
         val scale = 2f
         val gap = 24f
         val sheetW = 1180f
-        for ((name, board) in states) {
+        // The line-colour poster for every state; the phone-colour look, light and dark, for the main ones.
+        val phoneStates = setOf("4min", "now_one_later", "12min_two_lines_long_names", "no_trains")
+        val looks = listOf<Pair<String, PosterPalette?>>(
+            "" to null,
+            "_phone_light" to PhoneColors.palette(context, night = false),
+            "_phone_dark" to PhoneColors.palette(context, night = true),
+        )
+        for ((stateName, board) in states) for ((look, palette) in looks) {
+            if (palette != null && stateName !in phoneStates) continue
+            val name = stateName + look
             // Flow the widgets left to right, wrapping.
             var x = gap
             var y = gap
@@ -88,11 +97,11 @@ class WidgetSheetTest {
             val sheet = Bitmap.createBitmap((sheetW * scale).toInt(), (sheetH * scale).toInt(), Bitmap.Config.ARGB_8888)
             val c = Canvas(sheet)
             c.scale(scale, scale)
-            c.drawColor(0xFF2B2440.toInt())
-            val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; alpha = 170; textSize = 10f }
+            c.drawColor(if (look == "_phone_light") 0xFFB9C4D6.toInt() else 0xFF2B2440.toInt())
+            val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (look == "_phone_light") Color.BLACK else Color.WHITE; alpha = 170; textSize = 10f }
             sizes.forEachIndexed { i, (w, h) ->
                 val (px, py) = places[i]
-                val bmp = PosterRenderer.render(context, board, 0, 2, w.toFloat(), h.toFloat(), now, scale)
+                val bmp = PosterRenderer.render(context, board, 0, 2, w.toFloat(), h.toFloat(), now, scale, palette)
                 assertEquals("painted at the size asked for", (w * scale).toInt(), bmp.width)
                 c.save()
                 c.translate(px, py)
