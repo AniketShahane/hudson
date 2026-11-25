@@ -1,5 +1,5 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <group android:translateX="30" android:translateY="30">
-        <path android:fillColor="#FF000000" android:pathData="M24,4C16,4 10,5 10,12v19c0,3.86 3.14,7 7,7L14,41v1h4l4,-4h4l4,4h4v-1L31,38c3.86,0 7,-3.14 7,-7V12c0,-7 -6,-8 -14,-8zM14,12v8h8v-8zM26,12v8h8v-8z" android:fillType="evenOdd"/>
-    </group>
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M54,26H54A32,32 0,0 1,86,58V108A32,32 0,0 1,54,140H54A32,32 0,0 1,22,108V58A32,32 0,0 1,54,26z M54,31H54A27,27 0,0 1,81,58V113A27,27 0,0 1,54,140H54A27,27 0,0 1,27,113V58A27,27 0,0 1,54,31z"/>
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M43,38H65A9,9 0,0 1,74,47V57A9,9 0,0 1,65,66H43A9,9 0,0 1,34,57V47A9,9 0,0 1,43,38z M41,43H50A2,2 0,0 1,52,45V52A2,2 0,0 1,50,54H41A2,2 0,0 1,39,52V45A2,2 0,0 1,41,43z M58,43H67A2,2 0,0 1,69,45V52A2,2 0,0 1,67,54H58A2,2 0,0 1,56,52V45A2,2 0,0 1,58,43z M38.4,61a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0z M67.0,48.0 L68.01,59.99 L75.06,61.0 L68.01,62.01 L67.0,74.0 L65.99,62.01 L58.94,61.0 L65.99,59.99z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M54,60L38,108H30z M54,60L70,108H78z"/>
 </vector>

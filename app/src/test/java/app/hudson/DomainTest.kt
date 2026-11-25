@@ -178,6 +178,12 @@ class PlanTest {
         val card = LivePlan.card(Boards.build(Favorite.defaults[0], feed, now), now, now + 30 * 60_000)
         assertEquals("Exchange Pl → NY", card.title)
         assertEquals(3, card.metrics.size)
+        // Clock times only in the text that may sit unrefreshed.
+        assertTrue(card.detail.startsWith("Leaves ") && "min" !in card.detail, card.detail)
+        assertEquals("WTC", card.tile)
+        // Four minutes from leaving, on a ten-minute track: 360 of 600 seconds travelled.
+        assertEquals(360, card.approach!!.progress)
+        assertEquals(600, card.approach!!.max)
         assertNull(card.chipText)
         assertEquals(now + 240_000, card.chipWhenMs)
         val expected = "WTC · 4 min · then " + listOf(600_000L, 960_000L).joinToString(", ") { TimeText.clock(now + it) }

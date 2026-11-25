@@ -133,4 +133,47 @@ class WidgetSheetTest {
             println("[sheet] $name: ${PosterRenderer.describe(board, now)}")
         }
     }
+
+    /** The launcher icon as the launcher shows it (squircle and circle, colour and themed), and the lock-screen card's glyphs. */
+    @Test
+    fun icons() {
+        val context = RuntimeEnvironment.getApplication()
+        val cell = 320
+        val sheet = Bitmap.createBitmap(cell * 4 + 20, cell + 120, Bitmap.Config.ARGB_8888)
+        val c = Canvas(sheet)
+        c.drawColor(0xFF2B2440.toInt())
+        fun layer(id: Int, tint: Int? = null): Bitmap {
+            val b = Bitmap.createBitmap(432, 432, Bitmap.Config.ARGB_8888)
+            val d = context.getDrawable(id)!!.mutate()
+            tint?.let { d.setTint(it) }
+            d.setBounds(0, 0, 432, 432)
+            d.draw(Canvas(b))
+            return b
+        }
+        fun masked(layers: List<Bitmap>, circle: Boolean): Bitmap {
+            val out = Bitmap.createBitmap(432, 432, Bitmap.Config.ARGB_8888)
+            val oc = Canvas(out)
+            // The launcher shows the middle 72 of the icon's 108 dp.
+            val clip = Path().apply { if (circle) addCircle(216f, 216f, 144f, Path.Direction.CW) else addRoundRect(RectF(72f, 72f, 360f, 360f), 96f, 96f, Path.Direction.CW) }
+            oc.clipPath(clip)
+            layers.forEach { oc.drawBitmap(it, 0f, 0f, null) }
+            return out
+        }
+        val colour = listOf(layer(app.hudson.R.drawable.ic_launcher_background), layer(app.hudson.R.drawable.ic_launcher_foreground))
+        val themedGround = Bitmap.createBitmap(432, 432, Bitmap.Config.ARGB_8888).apply { eraseColor(0xFF2E4578.toInt()) }
+        val themed = listOf(themedGround, layer(app.hudson.R.drawable.ic_launcher_monochrome, 0xFFD9E2FF.toInt()))
+        listOf(masked(colour, false), masked(colour, true), masked(themed, false), masked(themed, true)).forEachIndexed { i, b ->
+            c.drawBitmap(b, android.graphics.Rect(56, 56, 376, 376), RectF(10f + i * cell, 10f, 10f + i * cell + cell - 10f, cell.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG))
+        }
+        // The train that rides the card's track, its station, and the status-bar mark.
+        listOf(app.hudson.R.drawable.ic_live_train to 200, app.hudson.R.drawable.ic_live_station to 100, app.hudson.R.drawable.ic_stat_train to 100).fold(20f) { x, (id, w) ->
+            val d = context.getDrawable(id)!!.mutate()
+            d.setTint(0xFFD93A30.toInt())
+            d.setBounds(x.toInt(), cell + 10, x.toInt() + w, cell + 110)
+            d.draw(c)
+            x + w + 30
+        }
+        val dir = File("build/outputs/roborazzi").apply { mkdirs() }
+        FileOutputStream(File(dir, "icons.png")).use { sheet.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
 }

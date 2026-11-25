@@ -203,9 +203,15 @@ class WalkthroughTest {
                 LivePlan.card(Boards.build(Favorite.defaults[0], feed, now), now, now + 30 * 60_000)
             }
             LiveNotifier.post(context, card)
+            // The card's poster tile is drawn by the app; save it beside the screenshots to look at.
+            app.hudson.notify.LiveTile.draw(context, card)?.let { tile ->
+                java.io.FileOutputStream(java.io.File(java.io.File("build/outputs/roborazzi").apply { mkdirs() }, "live_tile.png")).use { tile.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            }
             val nm = context.getSystemService(NotificationManager::class.java)
             val posted = shadowOf(nm).allNotifications
             assertTrue("Live Update posted", posted.isNotEmpty())
+            println("[walk] live style=${posted.first().extras.getString("android.template")} progress=${posted.first().extras.getInt("android.progress", -1)}")
+            assertTrue("the card is the progress style", posted.first().extras.getString("android.template").orEmpty().contains("ProgressStyle"))
             println("[walk] live title=${posted.first().extras.getCharSequence("android.title")} text=${posted.first().extras.getCharSequence("android.text")}")
         }
 

@@ -1,5 +1,7 @@
 package app.hudson.domain
 
+import app.hudson.core.Station
+
 /**
  * When to fetch again. Widgets cannot tick on their own, so the countdown is drawn by a
  * system Chronometer and the rows show clock times; what goes stale is the *list*. It is
@@ -22,6 +24,12 @@ object RefreshPlan {
 data class LiveMetric(val label: String, val atMs: Long)
 
 /**
+ * The first train drawn as a track it is travelling along: [progress] of [max] is how close it
+ * is to leaving, over the last [LivePlan.APPROACH_WINDOW_MS]. [colors] are its line colours.
+ */
+data class Approach(val progress: Int, val max: Int, val colors: List<Long>)
+
+/**
  * The Live Update for a commute the user started: up to three trains as countdowns, which the
  * system animates by itself, so the card stays right between refreshes.
  */
@@ -35,10 +43,17 @@ data class LiveCard(
     /** One line for phones without MetricStyle and for the collapsed card. */
     val summary: String,
     val endsAtMs: Long,
+    /** Clock times only, so it stays true however long the card sits unrefreshed: "Leaves 8:46 · then 8:52, 9:01". */
+    val detail: String = summary,
+    val approach: Approach? = null,
+    /** A few letters for the card's coloured tile: the destination's station code, "WTC". */
+    val tile: String? = null,
 )
 
 object LivePlan {
     const val TICK_MS = 45_000L
+    const val APPROACH_WINDOW_MS = 10 * 60_000L
+    private const val APPROACH_STEPS = 600
     private const val CHIP_COUNTDOWN_MIN_MS = 2 * 60_000L
 
     fun card(board: Board, nowMs: Long, endsAtMs: Long): LiveCard {
@@ -61,6 +76,26 @@ object LivePlan {
             chipWhenMs = first?.atMs,
             summary = summary,
             endsAtMs = endsAtMs,
+            detail = when {
+                first == null -> summary
+                else -> buildString {
+                    append("Leaves ").append(TimeText.clock(first.atMs))
+                    val rest = trains.drop(1)
+                    if (rest.isNotEmpty()) append(" · then ").append(rest.joinToString(", ") { TimeText.clock(it.atMs) })
+                }
+            },
+            approach = first?.let {
+                val left = (it.atMs - nowMs).coerceIn(0, APPROACH_WINDOW_MS)
+                Approach(
+                    progress = ((APPROACH_WINDOW_MS - left) * APPROACH_STEPS / APPROACH_WINDOW_MS).toInt(),
+                    max = APPROACH_STEPS,
+                    colors = it.colors,
+                )
+            },
+            tile = first?.let { d ->
+                val name = d.label.substringBefore(" via ")
+                Station.entries.firstOrNull { it.short.equals(name, ignoreCase = true) }?.code ?: name.take(3).uppercase()
+            },
         )
     }
 

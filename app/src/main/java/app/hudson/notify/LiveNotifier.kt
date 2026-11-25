@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.provider.Settings
 import app.hudson.R
@@ -17,12 +18,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.time.Instant
 
 /**
  * The commute Live Update. On Android 16+ it asks to be promoted, which on One UI puts it in
- * the Now Bar on the lock screen; on Android 17 the next three trains are MetricStyle timers,
- * which the system counts down by itself between refreshes.
+ * the Now Bar on the lock screen, and is drawn as a progress card: a train riding a track in its
+ * line colour toward the station. The header counts down by itself between refreshes; the text
+ * is clock times only, so nothing on the card goes stale.
  */
 object LiveNotifier {
     const val CHANNEL = "live"
@@ -87,7 +88,7 @@ object LiveNotifier {
         val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_train)
             .setContentTitle(card.title)
-            .setContentText(card.summary)
+            .setContentText(card.detail)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
@@ -112,15 +113,28 @@ object LiveNotifier {
             }
         }
 
-        if (rich && Build.VERSION.SDK_INT >= 37 && card.metrics.isNotEmpty()) {
-            val style = Notification.MetricStyle()
-            card.metrics.forEach { m ->
-                val value = Notification.Metric.TimeDifference.forTimer(Instant.ofEpochMilli(m.atMs), Notification.Metric.TimeDifference.FORMAT_ADAPTIVE)
-                style.addMetric(Notification.Metric(value, m.label))
+        val approach = card.approach
+        val lineColor = approach?.colors?.firstOrNull()?.toInt()
+        if (lineColor != null) builder.setColor(lineColor)
+        if (rich) LiveTile.draw(context, card)?.let { builder.setLargeIcon(it) }
+
+        if (rich && Build.VERSION.SDK_INT >= 36 && approach != null) {
+            // The train rides a track in its own line colour toward the station at the end; a train
+            // on two lines gets a track in both. The system dims the part still ahead.
+            val colors = approach.colors.take(2).ifEmpty { listOf(0xFF8A8A8AL) }
+            val style = Notification.ProgressStyle()
+                .setStyledByProgress(true)
+                .setProgressTrackerIcon(Icon.createWithResource(context, R.drawable.ic_live_train).setTint(colors.first().toInt()))
+                .setProgressEndIcon(Icon.createWithResource(context, R.drawable.ic_live_station).setTint(colors.last().toInt()))
+            val each = approach.max / colors.size
+            colors.forEachIndexed { i, c ->
+                val length = if (i == colors.lastIndex) approach.max - each * i else each
+                style.addProgressSegment(Notification.ProgressStyle.Segment(length).setColor(c.toInt()))
             }
+            style.setProgress(approach.progress.coerceIn(0, approach.max))
             builder.setStyle(style)
         } else {
-            builder.setStyle(Notification.BigTextStyle().bigText(card.summary))
+            builder.setStyle(Notification.BigTextStyle().bigText(card.detail))
         }
         return builder.build()
     }
