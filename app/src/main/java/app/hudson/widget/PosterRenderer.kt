@@ -88,10 +88,10 @@ object PosterRenderer {
         val minutes = TimeText.minutes(next.atMs, now)
         val big = if (minutes == 0L) "NOW" else minutes.toString()
         val p = text(face, ink, 1f).apply { letterSpacing = -0.04f }
-        val size = fitSize(p, big, maxSize = h * 1.5f, maxWidth = w * if (minutes == 0L) 0.56f else 0.6f)
+        val size = fitSize(p, big, maxSize = h * 1.35f, maxWidth = w * if (minutes == 0L) 0.5f else 0.52f)
         p.textSize = size
         val bigW = p.measureText(big)
-        val capTop = h * 0.14f
+        val capTop = h * 0.26f
         val baseline = capTop + size * 0.72f
         c.drawText(big, w - bigW + w * 0.035f, baseline, p)
 
@@ -102,7 +102,7 @@ object PosterRenderer {
         val small = text(sansBold, ink, 11f).apply { letterSpacing = 0.18f }
         c.drawText(ellipsize(station, small, colW.coerceAtLeast(60f)), left, 26f, small)
         val dest = text(face, ink, 26f)
-        val destText = "→ " + next.label.uppercase()
+        val destText = "→ " + next.label.substringBefore(" via ").uppercase()
         dest.textSize = fitSize(dest, destText, maxSize = 26f, maxWidth = colW.coerceAtLeast(70f)).coerceAtLeast(15f)
         c.drawText(ellipsize(destText, dest, colW.coerceAtLeast(70f)), left, 26f + dest.textSize + 2f, dest)
 
@@ -131,8 +131,10 @@ object PosterRenderer {
         c.drawColor(color(next.colors, 0))
         band(c, next.colors, w, h)
 
-        val small = text(sansBold, ink, 10.5f).apply { letterSpacing = 0.14f }
-        c.drawText(ellipsize("${board.favorite.station.short} → ${next.label}".uppercase(), small, w - 30f), 14f, 22f, small)
+        val small = text(sansBold, ink, 10.5f).apply { letterSpacing = 0.16f }
+        c.drawText(board.favorite.station.code, 14f, 22f, small)
+        val dest = text(face, ink, 15f)
+        c.drawText(ellipsize("→ " + next.label.substringBefore(" via ").uppercase(), dest, w - 28f), 14f, 40f, dest)
 
         val minutes = TimeText.minutes(next.atMs, now)
         val big = if (minutes == 0L) "NOW" else minutes.toString()
@@ -144,7 +146,7 @@ object PosterRenderer {
         val meta = text(sansBold, ink, 11.5f).apply { textAlign = Paint.Align.RIGHT }
         c.drawText(if (minutes == 0L) "LEAVING" else "MIN", w - 14f, h - 30f, meta)
         c.drawText(TimeText.clock(next.atMs), w - 14f, h - 15f, meta)
-        pageBars(c, ink, page, pages, w - 14f, 32f)
+        pageBars(c, ink, page, pages, w - 14f, 15f)
     }
 
     private fun strip(c: Canvas, face: Typeface, board: Board, page: Int, pages: Int, w: Float, h: Float, now: Long) {
@@ -189,7 +191,7 @@ object PosterRenderer {
             c.drawText(ellipsize(board.favorite.compact.uppercase() + "  ·  " + TimeText.clock(next.atMs), small, colW), left, h / 2f - 7f, small)
             c.drawText(ellipsize(next.label.uppercase(), title, colW), left, h / 2f + 15f, title)
         } else {
-            c.drawText(ellipsize(board.favorite.station.short.uppercase(), small, colW), left, h / 2f - 4f, small)
+            c.drawText(board.favorite.station.code + " →", left, h / 2f - 4f, small)
             c.drawText(ellipsize(next.label.uppercase(), title, colW), left, h / 2f + 13f, title)
         }
     }
@@ -202,8 +204,8 @@ object PosterRenderer {
         card(c, face, board, page, pages, w, top, now, withThen = false)
         c.restore()
         val rows = board.later.take(4)
-        val rowH = 32f
-        var y = top + 10f
+        val rowH = 30f
+        var y = top + 6f
         val time = text(face, PAPER, 17f)
         val label = text(sansBold, PAPER, 11f).apply { letterSpacing = 0.12f; alpha = 190 }
         val mins = text(sansBold, PAPER, 12f).apply { textAlign = Paint.Align.RIGHT }

@@ -33,6 +33,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -242,7 +244,7 @@ private fun Home(settings: Settings, feed: FeedSnapshot?, now: Long, onPick: (In
 @Composable
 private fun StationSwitcher(favorites: List<Favorite>, selected: Int, onPick: (Int) -> Unit) {
     if (favorites.size < 2) return
-    val fits = favorites.size <= 3
+    val fits = favorites.size <= 2
     val row = if (fits) Modifier.fillMaxWidth() else Modifier.horizontalScroll(rememberScrollState())
     Row(row, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         favorites.forEachIndexed { i, f ->
@@ -251,7 +253,7 @@ private fun StationSwitcher(favorites: List<Favorite>, selected: Int, onPick: (I
                 subtitle = f.subtitle.uppercase(),
                 selected = i == selected,
                 onClick = { onPick(i) },
-                modifier = if (fits) Modifier.weight(1f) else Modifier.width(170.dp),
+                modifier = if (fits) Modifier.weight(1f) else Modifier.widthIn(min = 120.dp),
             )
         }
     }
@@ -330,7 +332,13 @@ private fun Hero(board: Board, now: Long, height: Int) {
         )
         Column(Modifier.padding(start = 22.dp, top = 20.dp, end = 22.dp)) {
             Text(board.favorite.station.short.uppercase(), style = Type.label, color = ink)
-            Text("→ " + next.label.uppercase(), style = Type.title.copy(fontSize = 34.sp, lineHeight = 38.sp), color = ink, maxLines = 2, modifier = Modifier.fillMaxWidth(0.62f))
+            val dest = "→ " + next.label.substringBefore(" via ").uppercase()
+            val destSize = when {
+                dest.length <= 8 -> 34
+                dest.length <= 12 -> 28
+                else -> 22
+            }
+            Text(dest, style = Type.title.copy(fontSize = destSize.sp, lineHeight = (destSize + 4).sp), color = ink, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(0.72f))
         }
         Text(
             (if (minutes == 0L) "LEAVING · " else "MIN · LEAVES ") + TimeText.clock(next.atMs),
@@ -534,12 +542,9 @@ private fun AddScreen(onClose: () -> Unit, onSave: (Favorite) -> Unit) {
             SectionLabel("1 · LEAVING FROM")
             for (side in Side.entries) {
                 Text(if (side == Side.NJ) "New Jersey" else "New York", style = Type.body.copy(fontSize = 13.sp), color = s.muted, modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 6.dp))
-                Station.entries.filter { it.side == side }.chunked(3).forEach { row ->
-                    Row(Modifier.padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { option ->
-                            StationBlock(option.short.uppercase(), "", option == station, { station = option; direction = null }, Modifier.weight(1f))
-                        }
-                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Station.entries.filter { it.side == side }.forEach { option ->
+                        StationBlock(option.short.uppercase(), "", option == station, { station = option; direction = null }, Modifier.widthIn(min = 64.dp))
                     }
                 }
             }
