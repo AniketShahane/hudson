@@ -40,8 +40,12 @@ data class Board(
 }
 
 object Boards {
-    /** A train stays on the board this long after its time: it is usually still at the platform. */
-    const val GRACE_MS = 30_000L
+    /**
+     * A train stays on the board this long after its time, as the doors are usually still open.
+     * Kept short: ten seconds past its time a train is no longer one you can catch, and a card
+     * still counting it (the lock-screen timer runs into negative time) is only noise.
+     */
+    const val GRACE_MS = 10_000L
     const val STALE_AFTER_MS = 10 * 60_000L
 
     fun build(favorite: Favorite, feed: FeedSnapshot?, nowMs: Long, limit: Int = 5): Board {

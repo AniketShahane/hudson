@@ -103,7 +103,14 @@ object LivePlan {
     fun active(endsAtMs: Long, nowMs: Long): Boolean = nowMs < endsAtMs
 
     /** When the next refresh of a running session is due. */
-    fun nextTick(nowMs: Long, endsAtMs: Long): Long? = (nowMs + TICK_MS).takeIf { it < endsAtMs }
+    /**
+     * The regular beat, or sooner: the moment the first train drops off the board, so the card
+     * moves on to the next train instead of counting the departed one into negative time.
+     */
+    fun nextTick(nowMs: Long, endsAtMs: Long, firstAtMs: Long? = null): Long? {
+        val dropsAt = firstAtMs?.plus(Boards.GRACE_MS + 500)?.takeIf { it > nowMs }
+        return minOf(nowMs + TICK_MS, dropsAt ?: Long.MAX_VALUE).takeIf { it < endsAtMs }
+    }
 }
 
 /**

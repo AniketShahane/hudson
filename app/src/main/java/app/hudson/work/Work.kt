@@ -48,11 +48,13 @@ class LiveWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         Graph.feed.refresh(maxAgeMs = 15_000)
         val feed = Graph.feed.cached()
         val favorite = settings.favorites.at(settings.liveFavorite)
-        val card = LivePlan.card(Boards.build(favorite, feed, now), now, settings.liveUntilMs)
-        LiveNotifier.post(applicationContext, card)
+        // The time after the fetch, not before it: a slow network must not put a departed train back on the card.
+        val painted = System.currentTimeMillis()
+        val board = Boards.build(favorite, feed, painted)
+        LiveNotifier.post(applicationContext, LivePlan.card(board, painted, settings.liveUntilMs))
         Widgets.repaintAll(applicationContext)
         // A last beat at the end tidies the card away even if the system has not timed it out.
-        val next = LivePlan.nextTick(System.currentTimeMillis(), settings.liveUntilMs) ?: settings.liveUntilMs
+        val next = LivePlan.nextTick(System.currentTimeMillis(), settings.liveUntilMs, board.next?.atMs) ?: settings.liveUntilMs
         Scheduler.liveAt(applicationContext, next)
         return Result.success()
     }

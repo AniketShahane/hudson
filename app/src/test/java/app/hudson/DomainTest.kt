@@ -198,6 +198,11 @@ class PlanTest {
     @Test fun sessionTicksUntilItEnds() {
         assertEquals(now + LivePlan.TICK_MS, LivePlan.nextTick(now, now + 10 * 60_000))
         assertNull(LivePlan.nextTick(now, now + 10_000))
+        // A train leaving in 5 s: the next beat is when it drops off, ten seconds after its time, not 45 s away.
+        assertEquals(now + 5_000 + Boards.GRACE_MS + 500, LivePlan.nextTick(now, now + 10 * 60_000, now + 5_000))
+        // A train still minutes away does not hurry the beat.
+        assertEquals(now + LivePlan.TICK_MS, LivePlan.nextTick(now, now + 10 * 60_000, now + 5 * 60_000))
+        assertEquals(10_000L, Boards.GRACE_MS)
         assertTrue(LivePlan.active(now + 1, now))
     }
 
