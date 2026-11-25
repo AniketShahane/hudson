@@ -12,6 +12,8 @@ import app.hudson.data.feed.RidePathFeed
 import app.hudson.domain.Favorite
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -54,11 +56,14 @@ class HttpFeedSource(private val client: OkHttpClient) : FeedSource {
  */
 class FeedRepository(context: Context, @Volatile var source: FeedSource) {
     private val file = File(context.filesDir, "ridepath.json")
-    @Volatile private var memo: FeedSnapshot? = null
+    private val state = MutableStateFlow<FeedSnapshot?>(null)
 
-    suspend fun cached(): FeedSnapshot? = memo ?: withContext(Dispatchers.IO) {
+    /** The copy in memory, for screens and widgets that should redraw the moment a fetch lands. */
+    val flow: StateFlow<FeedSnapshot?> = state
+
+    suspend fun cached(): FeedSnapshot? = state.value ?: withContext(Dispatchers.IO) {
         if (!file.exists()) null
-        else runCatching { RidePathFeed.parse(file.readText(), file.lastModified()) }.getOrNull()?.also { memo = it }
+        else runCatching { RidePathFeed.parse(file.readText(), file.lastModified()) }.getOrNull()?.also { state.value = it }
     }
 
     /** Fetches unless the copy we have is younger than [maxAgeMs]. */
@@ -74,7 +79,7 @@ class FeedRepository(context: Context, @Volatile var source: FeedSource) {
                 tmp.setLastModified(now)
                 if (!tmp.renameTo(file)) { file.writeText(body); file.setLastModified(now) }
             }
-            memo = snapshot
+            state.value = snapshot
             snapshot
         }
     }

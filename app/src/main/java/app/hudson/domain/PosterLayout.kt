@@ -29,6 +29,16 @@ object PosterLayout {
     const val ROWS_PADDING = 12f
     const val MAX_ROWS = 4
 
+    data class Zone(val width: Float, val height: Float)
+
+    /**
+     * The top-left corner, over the station name, that opens the app; a tap anywhere else steps to
+     * the next favorite. On a strip it is the whole left side, where the names are.
+     */
+    fun openZone(widthDp: Float, heightDp: Float): Zone =
+        if (heightDp < STRIP_BELOW) Zone(widthDp * 0.55f, heightDp)
+        else Zone((widthDp * 0.6f).coerceAtLeast(minOf(widthDp * 0.72f, 96f)), minOf(heightDp * 0.5f, 60f).coerceAtLeast(minOf(heightDp, 48f)))
+
     fun plan(widthDp: Float, heightDp: Float, laterTrains: Int): Plan {
         if (heightDp < STRIP_BELOW) return Plan(Kind.STRIP, heightDp, 0)
         // The least height at which the poster still reads as a poster; rows only take what is beyond it.

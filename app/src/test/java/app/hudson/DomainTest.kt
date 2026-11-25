@@ -213,8 +213,13 @@ class PosterTest {
         val board = Boards.build(Favorite.defaults[0], feed, now)
         // 4:12 left: the "4" becomes "3" in 12 s.
         assertEquals(now + 12_000 + 250, app.hudson.domain.Redraw.nextAt(listOf(board), now))
-        // Inside the last minute the poster says NOW; no redraw is booked.
-        assertNull(app.hudson.domain.Redraw.nextAt(listOf(board), now + 200_000))
+        // Inside the last minute the poster says NOW; it is repainted when that train drops off the board.
+        assertEquals(now + 252_000 + Boards.GRACE_MS + 250, app.hudson.domain.Redraw.nextAt(listOf(board), now + 200_000))
+        // Nothing to count down: look again soon rather than never.
+        assertEquals(now + app.hudson.domain.Redraw.IDLE_MS, app.hudson.domain.Redraw.nextAt(emptyList(), now))
+        assertTrue(app.hudson.domain.Redraw.shouldFetch(null, now))
+        assertTrue(app.hudson.domain.Redraw.shouldFetch(now - 60_000, now))
+        assertTrue(!app.hudson.domain.Redraw.shouldFetch(now - 10_000, now))
     }
 
     @Test fun inkFlipsOnYellow() {
@@ -230,6 +235,15 @@ class PosterTest {
         assertEquals(PosterLayout.Kind.WIDE, PosterLayout.plan(300f, 150f, 3).kind)
         assertEquals(PosterLayout.Kind.WIDE, PosterLayout.plan(276f, 102f, 3).kind)
         assertEquals(PosterLayout.Kind.SQUARE, PosterLayout.plan(150f, 150f, 3).kind)
+    }
+
+    @Test fun openZoneIsAFingerSizedCornerNotTheWholeWidget() {
+        for ((w, h) in listOf(130f to 51f, 553f to 51f, 110f to 110f, 262f to 190f, 384f to 400f)) {
+            val z = PosterLayout.openZone(w, h)
+            assertTrue(z.width >= 48f || z.width == w, "$w x $h wide enough")
+            assertTrue(z.height >= 44f, "$w x $h tall enough")
+            assertTrue(z.width <= w * 0.72f && z.height <= h, "$w x $h leaves room to switch")
+        }
     }
 
     @Test fun rowsOnlyTakeWhatThePosterCanSpare() {

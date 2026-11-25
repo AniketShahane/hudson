@@ -19,6 +19,7 @@ import app.hudson.domain.LivePlan
 import app.hudson.domain.RefreshPlan
 import app.hudson.domain.at
 import app.hudson.notify.LiveNotifier
+import app.hudson.widget.MinuteTicker
 import app.hudson.widget.TrainWidget
 import java.util.concurrent.TimeUnit
 
@@ -28,6 +29,7 @@ class RefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorke
         Graph.init(applicationContext)
         val fetched = Graph.feed.refresh(maxAgeMs = 20_000)
         TrainWidget().updateAll(applicationContext)
+        MinuteTicker.plan(applicationContext)
         Scheduler.planNext(applicationContext)
         return if (fetched.isSuccess || runAttemptCount >= 2) Result.success() else Result.retry()
     }

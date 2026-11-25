@@ -72,18 +72,28 @@ object LivePlan {
 }
 
 /**
- * When a widget's big minutes number next changes. The poster widget is one drawn picture, so
- * it is redrawn exactly when "4" becomes "3"; inside the last minute it shows NOW until the
- * train leaves, which the list refresh handles.
+ * When the widget must next be repainted. It is one drawn picture, so nothing on it moves by
+ * itself: it is repainted when "4" becomes "3", and when a train showing NOW has left and the
+ * next one takes its place. With nothing to count down it still looks again every [IDLE_MS],
+ * so a widget that says "no trains" or "no signal" recovers without being tapped.
  */
 object Redraw {
-    fun nextAt(boards: List<Board>, nowMs: Long): Long? = boards
+    const val IDLE_MS = 120_000L
+
+    /** A repaint also fetches when the trains it would show are older than this. */
+    const val FETCH_IF_OLDER_MS = 45_000L
+
+    fun nextAt(boards: List<Board>, nowMs: Long): Long = boards
         .mapNotNull { it.next?.atMs }
-        .mapNotNull { at ->
+        .map { at ->
             val left = at - nowMs
-            if (left <= 60_000) null else nowMs + (left % 60_000).let { if (it < 500) it + 60_000 else it } + 250
+            if (left <= 60_000) at + Boards.GRACE_MS + 250
+            else nowMs + (left % 60_000).let { if (it < 500) it + 60_000 else it } + 250
         }
-        .minOrNull()
+        .filter { it > nowMs }
+        .minOrNull() ?: (nowMs + IDLE_MS)
+
+    fun shouldFetch(fetchedAtMs: Long?, nowMs: Long): Boolean = fetchedAtMs == null || nowMs - fetchedAtMs > FETCH_IF_OLDER_MS
 }
 
 /** Ink for text on a line colour: black on yellow, white on red, blue and green. */

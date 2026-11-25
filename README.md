@@ -9,8 +9,8 @@ on One UI 9 (Android 17). Personal, sideloaded.
   The next train is a big countdown drawn by a system `Chronometer`, so it ticks every second
   without waking the app; later trains are clock times, which never go stale.
 - **Favorites**: default *Exchange Pl → NY* and *WTC → NJ*. Add any station, direction and
-  optional terminals in the app. Tap the swap button on the widget (anywhere on the small sizes)
-  to step through them; each widget remembers its own.
+  optional terminals in the app. Tap the widget to step through them (each widget
+  remembers its own); tap the station name, top-left by the small arrow, to open the app on that station.
 - **Commute Live Update**: start from the widget's live button or the app. Up to three trains
   as countdowns (MetricStyle on Android 17), promoted to a Live Update, which One UI shows in the
   Now Bar on the lock screen. Ends by itself after 30 min (adjustable), on Stop, or when dismissed.

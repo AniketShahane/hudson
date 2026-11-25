@@ -122,7 +122,9 @@ object PosterRenderer {
             (if (bottomY < glyph.top - clear || top > glyph.bottom + clear) fullRight else beside) - pad
 
         val small = text(sansBold, ink, 11f * k).apply { letterSpacing = 0.18f }
-        fit(c, listOf(board.favorite.station.short.uppercase(), board.favorite.station.code), small, pad, y1, limit(y1 - 10f * k, y1, full - barsW - 6f), 9f)
+        val mark = 7.5f * k
+        val nameW = fit(c, listOf(board.favorite.station.short.uppercase(), board.favorite.station.code), small, pad, y1, limit(y1 - 10f * k, y1, full - barsW - 6f) - mark - 5f, 9f)
+        openMark(c, ink, pad + nameW + 3f, y1, mark)
 
         val dest = text(face, ink, destSize)
         fit(c, destOptions(next), dest, pad, y2, limit(y2 - destSize * 0.75f, y2), 12f)
@@ -160,7 +162,9 @@ object PosterRenderer {
 
         val y1 = 22f * k
         val small = text(sansBold, ink, 10.5f * k).apply { letterSpacing = 0.16f }
-        fit(c, listOf(board.favorite.station.short.uppercase(), board.favorite.station.code), small, pad, y1, w - 2 * pad - barsW - 6f, 9f)
+        val mark = 7f * k
+        val nameW = fit(c, listOf(board.favorite.station.short.uppercase(), board.favorite.station.code), small, pad, y1, w - 2 * pad - barsW - 6f - mark - 5f, 9f)
+        openMark(c, ink, pad + nameW + 3f, y1, mark)
         val dest = text(face, ink, 16f * k)
         val y2 = y1 + 19f * k
         fit(c, destOptions(next), dest, pad, y2, w - 2 * pad, 11f)
@@ -244,7 +248,9 @@ object PosterRenderer {
         val colW = right - unitW - b.width() - 12f * k - left
         val dest = next.label.uppercase()
         val clock = TimeText.clock(next.atMs)
-        fit(c, listOf(board.favorite.compact.uppercase() + "  ·  " + clock, board.favorite.station.code + " →  " + clock, board.favorite.station.code + " →"), small, left, mid - 6f * k, colW, 8.5f)
+        val mark = 6.5f * k
+        val nameW = fit(c, listOf(board.favorite.compact.uppercase() + "  ·  " + clock, board.favorite.station.code + "  ·  " + clock, board.favorite.station.code), small, left, mid - 6f * k, colW - mark - 5f, 8.5f)
+        openMark(c, PAPER, left + nameW + 3f, mid - 6f * k, mark, 180)
         fit(c, listOfNotNull(dest, dest.substringBefore(" VIA "), codeOf(next)), title, left, mid + 15f * k, colW, 11f)
     }
 
@@ -295,8 +301,8 @@ object PosterRenderer {
      * Draws the first of [options] that fits in [width], shrinking the type as far as [minSize]
      * before moving to the next, shorter wording. Only if none fits is the last one cut short.
      */
-    private fun fit(c: Canvas, options: List<String>, p: TextPaint, x: Float, y: Float, width: Float, minSize: Float) {
-        if (width < 12f) return
+    private fun fit(c: Canvas, options: List<String>, p: TextPaint, x: Float, y: Float, width: Float, minSize: Float): Float {
+        if (width < 12f) return 0f
         val size = p.textSize
         for (s in options) {
             val needed = p.measureText(s)
@@ -304,13 +310,25 @@ object PosterRenderer {
             if (shrunk >= minOf(minSize, size)) {
                 p.textSize = shrunk * if (shrunk < size) 0.99f else 1f
                 c.drawText(s, x, y, p)
+                val drawn = p.measureText(s)
                 p.textSize = size
-                return
+                return drawn
             }
         }
         p.textSize = minOf(minSize, size)
-        c.drawText(TextUtils.ellipsize(options.last(), p, width, TextUtils.TruncateAt.END).toString(), x, y, p)
+        val cut = TextUtils.ellipsize(options.last(), p, width, TextUtils.TruncateAt.END).toString()
+        c.drawText(cut, x, y, p)
+        val drawn = p.measureText(cut)
         p.textSize = size
+        return drawn
+    }
+
+    /** A small up-right arrow after the station name: tapping there opens the app. */
+    private fun openMark(c: Canvas, ink: Int, x: Float, baseline: Float, size: Float, alpha: Int = 255) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ink; this.alpha = alpha; style = Paint.Style.STROKE; strokeWidth = size * 0.2f; strokeCap = Paint.Cap.SQUARE; strokeJoin = Paint.Join.MITER }
+        val top = baseline - size
+        c.drawLine(x, baseline - size * 0.05f, x + size * 0.9f, top + size * 0.05f, p)
+        c.drawPath(Path().apply { moveTo(x + size * 0.3f, top); lineTo(x + size, top); lineTo(x + size, top + size * 0.7f) }, p)
     }
 
     private fun pageBarsWidth(pages: Int): Float = if (pages < 2) 0f else 14f + (pages.coerceAtMost(6) - 1) * 8f
