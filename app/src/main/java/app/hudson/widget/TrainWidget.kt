@@ -52,9 +52,7 @@ import app.hudson.work.Scheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** Which favorite a widget shows; each widget keeps its own. */
 internal val FavoriteIndexKey = intPreferencesKey("favorite_index")
@@ -157,17 +155,20 @@ class TrainWidgetReceiver : GlanceAppWidgetReceiver() {
     }
 }
 
-/** Steps this widget to the next favorite, redraws at once from the cached feed, then refreshes. */
+/** Steps this widget to the next favorite and redraws at once from the trains already known. */
 class CycleFavoriteAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         updateAppWidgetState(context, glanceId) { prefs -> prefs[FavoriteIndexKey] = (prefs[FavoriteIndexKey] ?: 0) + 1 }
         TrainWidget().update(context, glanceId)
-        Scheduler.refreshNow(context)
+        // Only when the trains are getting old: a fetch landing a moment after every tap repaints
+        // the card a second time, which reads as the tap misfiring.
+        Graph.init(context)
+        if (Redraw.shouldFetch(Graph.feed.cached()?.fetchedAtMs, System.currentTimeMillis())) Scheduler.refreshNow(context)
     }
 }
 
 /**
- * Repaints the widgets when what they show changes ([Redraw]), and fetches first when the trains
+ * Repaints the widgets when what they show changes ([Redraw]), and asks for a fetch when the trains
  * are getting old. A non-waking alarm: it never wakes a sleeping phone, and fires as soon as the
  * phone is awake again, so the widget is brought up to date as the screen comes on rather than
  * whenever background work next gets a turn.
@@ -197,29 +198,19 @@ class MinuteTickReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val pending = goAsync()
         val app = context.applicationContext
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        scope.launch {
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try {
                 Graph.init(app)
                 if (GlanceAppWidgetManager(app).getGlanceIds(TrainWidget::class.java).isEmpty()) return@launch
-                // Paint at once from what is known, then again if a fetch brings something newer.
                 TrainWidget().updateAll(app)
-                if (Redraw.shouldFetch(Graph.feed.cached()?.fetchedAtMs, System.currentTimeMillis())) {
-                    // A receiver has about ten seconds. The fetch runs on its own so a slow network
-                    // cannot hold it past that; if it lands late the next tick paints it.
-                    val fetch = scope.async {
-                        if (Graph.feed.refresh().isSuccess) TrainWidget().updateAll(app)
-                    }
-                    withTimeoutOrNull(FETCH_WAIT_MS) { fetch.await() }
-                }
+                // The fetch is handed to a worker rather than awaited here. The system delivers an
+                // app's broadcasts one at a time, and a tap on the widget is one too: waiting on the
+                // network in this receiver made taps hang for seconds, just as a train was leaving.
+                if (Redraw.shouldFetch(Graph.feed.cached()?.fetchedAtMs, System.currentTimeMillis())) Scheduler.refreshNow(app)
                 MinuteTicker.plan(app)
             } finally {
                 pending.finish()
             }
         }
-    }
-
-    private companion object {
-        const val FETCH_WAIT_MS = 6_000L
     }
 }

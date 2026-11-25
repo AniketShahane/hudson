@@ -83,7 +83,8 @@ object Scheduler {
             .setConstraints(network)
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.REPLACE, request)
+        // KEEP: a second request while one is running must not cancel it and start over.
+        WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.KEEP, request)
     }
 
     /** Books a fetch just after the first train on any widget leaves. */
