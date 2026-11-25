@@ -2,7 +2,6 @@ package app.hudson.work
 
 import android.content.Context
 import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.updateAll
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -21,6 +20,7 @@ import app.hudson.domain.at
 import app.hudson.notify.LiveNotifier
 import app.hudson.widget.MinuteTicker
 import app.hudson.widget.TrainWidget
+import app.hudson.widget.Widgets
 import java.util.concurrent.TimeUnit
 
 /** Fetches the feed and redraws every widget, then books the next fetch. */
@@ -28,7 +28,7 @@ class RefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorke
     override suspend fun doWork(): Result {
         Graph.init(applicationContext)
         val fetched = Graph.feed.refresh(maxAgeMs = 20_000)
-        TrainWidget().updateAll(applicationContext)
+        Widgets.repaintAll(applicationContext)
         MinuteTicker.plan(applicationContext)
         Scheduler.planNext(applicationContext)
         return if (fetched.isSuccess || runAttemptCount >= 2) Result.success() else Result.retry()
@@ -50,7 +50,7 @@ class LiveWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val favorite = settings.favorites.at(settings.liveFavorite)
         val card = LivePlan.card(Boards.build(favorite, feed, now), now, settings.liveUntilMs)
         LiveNotifier.post(applicationContext, card)
-        TrainWidget().updateAll(applicationContext)
+        Widgets.repaintAll(applicationContext)
         // A last beat at the end tidies the card away even if the system has not timed it out.
         val next = LivePlan.nextTick(System.currentTimeMillis(), settings.liveUntilMs) ?: settings.liveUntilMs
         Scheduler.liveAt(applicationContext, next)
@@ -117,11 +117,24 @@ object Scheduler {
 
 /** Starting, switching and stopping the commute Live Update. */
 object LiveSession {
-    suspend fun start(context: Context, favoriteIndex: Int) {
+    /**
+     * Shows the card at once from the trains already known, so the tap has an answer straight away,
+     * then hands over to the worker that keeps it fresh. A card that could not be shown leaves no
+     * session behind, so the app never claims to be tracking when nothing is on the lock screen.
+     */
+    suspend fun start(context: Context, favoriteIndex: Int): LiveNotifier.Result {
         Graph.init(context)
         val now = System.currentTimeMillis()
         Graph.settings.update { it.copy(liveFavorite = favoriteIndex, liveUntilMs = now + it.liveMinutes * 60_000L) }
+        val settings = Graph.settings.current()
+        val card = LivePlan.card(Boards.build(settings.favorites.at(settings.liveFavorite), Graph.feed.cached(), now), now, settings.liveUntilMs)
+        val result = LiveNotifier.post(context, card)
+        if (result == LiveNotifier.Result.BLOCKED || result == LiveNotifier.Result.FAILED) {
+            Graph.settings.update { it.copy(liveUntilMs = 0) }
+            return result
+        }
         Scheduler.liveAt(context, now)
+        return result
     }
 
     suspend fun next(context: Context) {
@@ -135,6 +148,6 @@ object LiveSession {
         Graph.settings.update { it.copy(liveUntilMs = 0) }
         Scheduler.cancelLive(context)
         LiveNotifier.cancel(context)
-        TrainWidget().updateAll(context)
+        Widgets.repaintAll(context)
     }
 }

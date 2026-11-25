@@ -2,6 +2,7 @@ package app.hudson.widget
 
 import android.content.Context
 import android.content.res.Configuration
+import app.hudson.R
 
 /**
  * The widget drawn in the phone's own Material You colours (taken from the wallpaper) instead of
@@ -16,28 +17,30 @@ data class PosterPalette(
     val panelInk: Int,
     /** The minutes on the strip. */
     val accent: Int,
+    /** False hides the line-colour bars: used when painting a layer the launcher will tint. */
+    val lines: Boolean = true,
 )
 
 object PhoneColors {
     fun isNight(context: Context): Boolean =
         context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
 
-    /** Light card in light mode, dark card in dark mode; the tones are Material 3's container roles. */
-    fun palette(context: Context, night: Boolean = isNight(context)): PosterPalette = if (night) {
-        PosterPalette(
-            ground = context.getColor(android.R.color.system_accent1_700),
-            ink = context.getColor(android.R.color.system_accent1_100),
-            panel = context.getColor(android.R.color.system_neutral1_900),
-            panelInk = context.getColor(android.R.color.system_neutral1_50),
-            accent = context.getColor(android.R.color.system_accent1_200),
-        )
-    } else {
-        PosterPalette(
-            ground = context.getColor(android.R.color.system_accent1_100),
-            ink = context.getColor(android.R.color.system_accent1_900),
-            panel = context.getColor(android.R.color.system_neutral1_50),
-            panelInk = context.getColor(android.R.color.system_neutral1_900),
-            accent = context.getColor(android.R.color.system_accent1_600),
+    /**
+     * The colours as they resolve right now, for painting one flat picture (tests and previews).
+     * The widget itself does not use this: it sends the launcher the resource ids and uncoloured
+     * layers ([PosterRenderer.renderLayers]) so the colours are always the phone's current ones.
+     */
+    fun palette(context: Context, night: Boolean = isNight(context)): PosterPalette {
+        val config = Configuration(context.resources.configuration).apply {
+            uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or if (night) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
+        }
+        val themed = context.createConfigurationContext(config)
+        return PosterPalette(
+            ground = themed.getColor(R.color.phone_ground),
+            ink = themed.getColor(R.color.phone_ink),
+            panel = themed.getColor(R.color.phone_panel),
+            panelInk = themed.getColor(R.color.phone_panel_ink),
+            accent = themed.getColor(R.color.phone_accent),
         )
     }
 }

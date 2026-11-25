@@ -61,10 +61,64 @@ object PosterRenderer {
     }
 
     /** [palette] null paints the line-colour poster; otherwise the phone's colours with the line as an edge bar. */
-    fun render(context: Context, board: Board, page: Int, pages: Int, widthDp: Float, heightDp: Float, nowMs: Long, scale: Float, palette: PosterPalette? = null): Bitmap {
+    fun render(context: Context, board: Board, page: Int, pages: Int, widthDp: Float, heightDp: Float, nowMs: Long, scale: Float, palette: PosterPalette? = null): Bitmap =
+        paint(context, board, page, pages, widthDp, heightDp, nowMs, scale, palette, Bitmap.Config.ARGB_8888)
+
+    /** One part of the phone-colour picture: what to tint it with, or null for the line-colour bars, which keep their own colours. */
+    enum class Layer(val tint: Int?) {
+        LINES(null),
+        PANEL(R.color.phone_panel),
+        INK(R.color.phone_ink),
+        PANEL_INK(R.color.phone_panel_ink),
+        ACCENT(R.color.phone_accent),
+    }
+
+    class Painted(val layer: Layer, val bitmap: Bitmap)
+
+    /** The colour resource behind the layers. */
+    fun groundRes(board: Board, widthDp: Float, heightDp: Float): Int =
+        if (board.next == null || PosterLayout.plan(widthDp, heightDp, board.later.size).kind == PosterLayout.Kind.STRIP) R.color.phone_panel
+        else R.color.phone_ground
+
+    /**
+     * The phone-colour picture as uncoloured layers, bottom first. Each is a stencil (one byte a
+     * pixel) that the launcher tints with a colour resource, so the colours are the phone's
+     * current Material You tones the moment the wallpaper or dark mode changes, with no repaint.
+     * Only the layers this size and state actually use are painted.
+     */
+    fun renderLayers(context: Context, board: Board, page: Int, pages: Int, widthDp: Float, heightDp: Float, nowMs: Long, scale: Float): List<Painted> {
+        val next = board.next
+        val plan = PosterLayout.plan(widthDp.coerceAtLeast(60f), heightDp.coerceAtLeast(40f), board.later.size)
+        val strip = plan.kind == PosterLayout.Kind.STRIP
+        val poster = !strip && next != null
+        val wanted = buildList {
+            if (poster && plan.rows > 0) add(Layer.PANEL)
+            // Above the panel: each later train's row carries its line colour too.
+            if (next != null) add(Layer.LINES)
+            if (poster) add(Layer.INK)
+            if (!poster || plan.rows > 0) add(Layer.PANEL_INK)
+            if (strip && next != null) add(Layer.ACCENT)
+        }
+        fun on(layer: Layer, it: Layer) = if (layer == it) Color.WHITE else Color.TRANSPARENT
+        return wanted.map { layer ->
+            val stencil = PosterPalette(
+                ground = Color.TRANSPARENT,
+                ink = on(layer, Layer.INK),
+                panel = on(layer, Layer.PANEL),
+                panelInk = on(layer, Layer.PANEL_INK),
+                accent = on(layer, Layer.ACCENT),
+                lines = layer == Layer.LINES,
+            )
+            // The bars are flat rectangles in their own colours: full colour, but they need few pixels.
+            if (layer == Layer.LINES) Painted(layer, paint(context, board, page, pages, widthDp, heightDp, nowMs, minOf(scale, 1.5f), stencil, Bitmap.Config.ARGB_8888))
+            else Painted(layer, paint(context, board, page, pages, widthDp, heightDp, nowMs, scale, stencil, Bitmap.Config.ALPHA_8))
+        }
+    }
+
+    private fun paint(context: Context, board: Board, page: Int, pages: Int, widthDp: Float, heightDp: Float, nowMs: Long, scale: Float, palette: PosterPalette?, config: Bitmap.Config): Bitmap {
         val w = widthDp.coerceAtLeast(60f)
         val h = heightDp.coerceAtLeast(40f)
-        val bitmap = Bitmap.createBitmap((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        val bitmap = Bitmap.createBitmap((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), config)
         val c = Canvas(bitmap)
         c.scale(scale, scale)
         val face = display(context)
@@ -137,7 +191,7 @@ object PosterRenderer {
             withThen && board.later.isNotEmpty() -> listOf(2, 1).map { n -> "THEN " + board.later.take(n).joinToString("  ·  ") { TimeText.clock(it.atMs) } }.distinct()
             else -> emptyList()
         }
-        val meta = text(sansBold, ink, 10.5f * k).apply { letterSpacing = 0.15f; alpha = 200 }
+        val meta = text(sansBold, ink, 10.5f * k).apply { letterSpacing = 0.15f; fade(200) }
         val bottomLimit = limit(bottom - 12f * k, bottom)
         when {
             thenOptions.isEmpty() -> fit(c, metaOptions, meta, pad, bottom, bottomLimit, 9f)
@@ -197,14 +251,14 @@ object PosterRenderer {
         c.drawRect(0f, top, w, h, fill(palette?.panel ?: NIGHT))
         val pad = if (w >= 200f) 18f else 14f
         val time = text(face, paper, 16f)
-        val label = text(sansBold, paper, 11f).apply { letterSpacing = 0.12f; alpha = 190 }
+        val label = text(sansBold, paper, 11f).apply { letterSpacing = 0.12f; fade(190) }
         val mins = text(sansBold, paper, 11.5f).apply { textAlign = Paint.Align.RIGHT }
         val timeX = pad + 14f
         val labelX = timeX + time.measureText("12:00") + 12f
         var y = top + PosterLayout.ROWS_PADDING / 2f - 1f
         for (d in trains) {
             val base = y + PosterLayout.ROW_HEIGHT / 2f + 6f
-            c.drawRoundRect(RectF(pad, y + 7f, pad + 5f, y + PosterLayout.ROW_HEIGHT - 7f), 2.5f, 2.5f, fill(d.colors.firstOrNull()?.toInt() ?: paper))
+            c.drawRoundRect(RectF(pad, y + 7f, pad + 5f, y + PosterLayout.ROW_HEIGHT - 7f), 2.5f, 2.5f, fill(d.colors.firstOrNull()?.let { line(it.toInt(), palette) } ?: paper))
             c.drawText(TimeText.clock(d.atMs), timeX, base, time)
             val count = TimeText.countdown(d.atMs, now).uppercase()
             c.drawText(count, w - pad, base - 1f, mins)
@@ -222,12 +276,12 @@ object PosterRenderer {
         val bar = if (w >= 200f) 12f else 9f
         if (next != null) {
             val cols = next.colors.ifEmpty { listOf(0xFF8A8A8AL) }.take(2)
-            cols.forEachIndexed { i, col -> c.drawRect(0f, h / cols.size * i, bar, h / cols.size * (i + 1), fill(col.toInt())) }
+            cols.forEachIndexed { i, col -> c.drawRect(0f, h / cols.size * i, bar, h / cols.size * (i + 1), fill(line(col.toInt(), palette))) }
         }
         val left = bar + 12f * k
         val right = w - 14f * k
         val mid = h / 2f
-        val small = text(sansBold, paper, 10f * k).apply { letterSpacing = 0.16f; alpha = 180 }
+        val small = text(sansBold, paper, 10f * k).apply { letterSpacing = 0.16f; fade(180) }
         val title = text(face, paper, (if (w >= 200f) 19f else 15.5f) * k)
         if (next == null) {
             fit(c, listOf(board.favorite.compact.uppercase(), board.favorite.station.code), small, left, mid - 6f * k, right - left, 8.5f)
@@ -260,13 +314,13 @@ object PosterRenderer {
         c.drawColor(palette?.panel ?: NIGHT)
         val k = (minOf(w / 300f, h / 150f)).coerceIn(0.8f, 1.3f)
         val pad = 16f * k
-        val small = text(sansBold, paper, 11f * k).apply { letterSpacing = 0.16f; alpha = 190 }
+        val small = text(sansBold, paper, 11f * k).apply { letterSpacing = 0.16f; fade(190) }
         fit(c, listOf(board.favorite.compact.uppercase(), board.favorite.station.code), small, pad, 26f * k, w - 2 * pad - pageBarsWidth(pages) - 6f, 9f)
         val title = emptyTitle(board.state)
         val p = text(face, paper, 100f)
         val b = bigFit(p, title, maxInkW = w - 2 * pad, maxInkH = h * 0.24f)
         c.drawText(title, pad - b.left, h * 0.5f + -b.top / 2f, p)
-        val hint = text(sansMedium, paper, 11.5f * k).apply { alpha = 175 }
+        val hint = text(sansMedium, paper, 11.5f * k).apply { fade(175) }
         fit(c, listOf(emptyHint(board.state), ""), hint, pad, h - 16f * k, w - 2 * pad, 10f)
         pageBars(c, paper, page, pages, w - pad, 14f * k)
     }
@@ -327,7 +381,7 @@ object PosterRenderer {
 
     /** A small up-right arrow after the station name: tapping there opens the app. */
     private fun openMark(c: Canvas, ink: Int, x: Float, baseline: Float, size: Float, alpha: Int = 255) {
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ink; this.alpha = alpha; style = Paint.Style.STROKE; strokeWidth = size * 0.2f; strokeCap = Paint.Cap.SQUARE; strokeJoin = Paint.Join.MITER }
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ink; fade(alpha); style = Paint.Style.STROKE; strokeWidth = size * 0.2f; strokeCap = Paint.Cap.SQUARE; strokeJoin = Paint.Join.MITER }
         val top = baseline - size
         c.drawLine(x, baseline - size * 0.05f, x + size * 0.9f, top + size * 0.05f, p)
         c.drawPath(Path().apply { moveTo(x + size * 0.3f, top); lineTo(x + size, top); lineTo(x + size, top + size * 0.7f) }, p)
@@ -348,7 +402,7 @@ object PosterRenderer {
         }
         c.drawColor(palette.ground)
         val cols = next.colors.take(2)
-        cols.forEachIndexed { i, col -> c.drawRect(0f, h / cols.size * i, LINE_BAR, h / cols.size * (i + 1), fill(col.toInt())) }
+        cols.forEachIndexed { i, col -> c.drawRect(0f, h / cols.size * i, LINE_BAR, h / cols.size * (i + 1), fill(line(col.toInt(), palette))) }
         return palette.ink
     }
 
@@ -372,7 +426,7 @@ object PosterRenderer {
         var x = right
         for (i in n - 1 downTo 0) {
             val wBar = if (i == page) 14f else 5f
-            val p = fill(ink).apply { alpha = if (i == page) 255 else 110 }
+            val p = fill(ink).apply { fade(if (i == page) 255 else 110) }
             c.drawRoundRect(RectF(x - wBar, top, x, top + 4f), 2f, 2f, p)
             x -= wBar + 3f
         }
@@ -388,6 +442,11 @@ object PosterRenderer {
         textSize = sizeDp
         fontFeatureSettings = "tnum"
     }
+
+    /** Dims a paint relative to its colour's own alpha, so a colour that is switched off stays off. */
+    private fun Paint.fade(alpha: Int) { this.alpha = this.alpha * alpha / 255 }
+
+    private fun line(argb: Int, palette: PosterPalette?): Int = if (palette?.lines == false) Color.TRANSPARENT else argb
 
     private fun fill(color: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; style = Paint.Style.FILL }
 

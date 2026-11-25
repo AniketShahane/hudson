@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import app.hudson.R
 import app.hudson.domain.LiveCard
 import app.hudson.ui.MainActivity
@@ -49,10 +50,35 @@ object LiveNotifier {
      */
     private fun promotionApis(): Boolean = Build.VERSION.SDK_INT >= 36
 
-    fun post(context: Context, card: LiveCard) {
+    /** What became of an attempt to show the card, so the app can say so instead of failing silently. */
+    enum class Result {
+        /** Showing, and allowed on the lock screen and status bar. */
+        SHOWN,
+        /** Showing in the notification shade only: the user has not allowed Live Updates for this app. */
+        NOT_PROMOTED,
+        /** Notifications, or this channel, are turned off for the app. */
+        BLOCKED,
+        /** The system refused the notification. */
+        FAILED,
+    }
+
+    fun post(context: Context, card: LiveCard): Result {
         val nm = context.getSystemService(NotificationManager::class.java)
-        if (!nm.areNotificationsEnabled()) return
+        if (!nm.areNotificationsEnabled()) return Result.BLOCKED
         ensureChannel(context)
+        if (nm.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE) return Result.BLOCKED
+        // The promoted, metric-style card uses APIs that are new and strict about what they accept.
+        // If the system rejects it, a plain ongoing card is far better than none at all.
+        val shown = runCatching { nm.notify(ID, build(context, card, rich = true)) }.isSuccess ||
+            runCatching { nm.notify(ID, build(context, card, rich = false)) }.isSuccess
+        return when {
+            !shown -> Result.FAILED
+            canPromote(context) -> Result.SHOWN
+            else -> Result.NOT_PROMOTED
+        }
+    }
+
+    private fun build(context: Context, card: LiveCard, rich: Boolean): Notification {
         val now = System.currentTimeMillis()
         val open = PendingIntent.getActivity(
             context, 0, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
@@ -77,7 +103,7 @@ object LiveNotifier {
             builder.setShowWhen(false)
         }
 
-        if (promotionApis()) {
+        if (rich && promotionApis()) {
             try {
                 builder.setRequestPromotedOngoing(true)
                 card.chipText?.let { builder.setShortCriticalText(it) }
@@ -86,7 +112,7 @@ object LiveNotifier {
             }
         }
 
-        if (Build.VERSION.SDK_INT >= 37 && card.metrics.isNotEmpty()) {
+        if (rich && Build.VERSION.SDK_INT >= 37 && card.metrics.isNotEmpty()) {
             val style = Notification.MetricStyle()
             card.metrics.forEach { m ->
                 val value = Notification.Metric.TimeDifference.forTimer(Instant.ofEpochMilli(m.atMs), Notification.Metric.TimeDifference.FORMAT_ADAPTIVE)
@@ -96,7 +122,19 @@ object LiveNotifier {
         } else {
             builder.setStyle(Notification.BigTextStyle().bigText(card.summary))
         }
-        nm.notify(ID, builder.build())
+        return builder.build()
+    }
+
+    /** The system page with the "Live Updates" switch for this app; the plain notification page where that does not exist. */
+    fun openPromotionSettings(context: Context) {
+        val specific = Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (runCatching { context.startActivity(specific) }.isFailure) openNotificationSettings(context)
+    }
+
+    fun openNotificationSettings(context: Context) {
+        runCatching {
+            context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 
     fun cancel(context: Context) {

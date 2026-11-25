@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -77,7 +78,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
-import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -100,6 +100,7 @@ import app.hudson.domain.TimeText
 import app.hudson.notify.LiveNotifier
 import app.hudson.widget.PosterRenderer
 import app.hudson.widget.TrainWidget
+import app.hudson.widget.Widgets
 import app.hudson.widget.TrainWidgetReceiver
 import app.hudson.work.LiveSession
 import kotlinx.coroutines.delay
@@ -139,8 +140,19 @@ fun HomeScreen(askNotificationsOnStart: Boolean = false) {
 
     fun notificationsAllowed() =
         ContextCompat.checkSelfPermission(context, MainActivity.NOTIFICATION_PERMISSION) == PackageManager.PERMISSION_GRANTED
+    // What became of the last attempt to start tracking, so a tap is never met with silence.
+    var liveResult by remember { mutableStateOf<LiveNotifier.Result?>(null) }
+    fun startTracking() = scope.launch {
+        val st = settings ?: return@launch
+        liveResult = LiveSession.start(context, st.appFavorite)
+    }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) scope.launch { settings?.let { LiveSession.start(context, it.appFavorite) } }
+        if (granted) startTracking()
+        else {
+            // Once refused, Android stops showing its dialog; the switch is then only in Settings.
+            liveResult = LiveNotifier.Result.BLOCKED
+            LiveNotifier.openNotificationSettings(context)
+        }
     }
     LaunchedEffect(askNotificationsOnStart) {
         if (askNotificationsOnStart && !notificationsAllowed()) permission.launch(MainActivity.NOTIFICATION_PERMISSION)
@@ -148,7 +160,7 @@ fun HomeScreen(askNotificationsOnStart: Boolean = false) {
 
     fun save(transform: (Settings) -> Settings) = scope.launch {
         Graph.settings.update(transform)
-        TrainWidget().updateAll(context)
+        Widgets.repaintAll(context)
     }
 
     BackHandler(enabled = screen != Screen.HOME) {
@@ -164,10 +176,11 @@ fun HomeScreen(askNotificationsOnStart: Boolean = false) {
                     settings = st, feed = feed, now = now,
                     onPick = { i -> save { it.copy(appFavorite = i) } },
                     onTrack = {
-                        if (notificationsAllowed()) scope.launch { LiveSession.start(context, st.appFavorite) }
+                        if (notificationsAllowed()) startTracking()
                         else permission.launch(MainActivity.NOTIFICATION_PERMISSION)
                     },
-                    onStop = { scope.launch { LiveSession.stop(context) } },
+                    onStop = { liveResult = null; scope.launch { LiveSession.stop(context) } },
+                    liveResult = liveResult,
                     onSettings = { screenName = Screen.SETTINGS.name },
                 )
                 Screen.SETTINGS -> SettingsScreen(
@@ -200,7 +213,7 @@ fun HomeScreen(askNotificationsOnStart: Boolean = false) {
 // Home
 
 @Composable
-private fun Home(settings: Settings, feed: FeedSnapshot?, now: Long, onPick: (Int) -> Unit, onTrack: () -> Unit, onStop: () -> Unit, onSettings: () -> Unit) {
+private fun Home(settings: Settings, feed: FeedSnapshot?, now: Long, onPick: (Int) -> Unit, onTrack: () -> Unit, onStop: () -> Unit, liveResult: LiveNotifier.Result?, onSettings: () -> Unit) {
     val s = SwissTheme.colors
     val favorites = settings.favorites.ifEmpty { Favorite.defaults }
     val selected = Math.floorMod(settings.appFavorite, favorites.size)
@@ -230,6 +243,7 @@ private fun Home(settings: Settings, feed: FeedSnapshot?, now: Long, onPick: (In
             }
             Spacer(Modifier.height(16.dp))
         }
+        LiveNote(liveResult, tracking)
         if (tracking) TrackingStrip(settings.liveUntilMs, onStop) else TrackButton(onTrack)
         Text(
             if (board.state == BoardState.STALE) "NO SIGNAL · " + TimeText.updated(board.fetchedAtMs).uppercase() else TimeText.updated(board.fetchedAtMs).uppercase(),
@@ -374,6 +388,26 @@ private fun LineBar(colors: List<Long>, width: Int, height: Int) {
     }
 }
 
+/** Says why tracking is not on the lock screen, and takes the user to the switch that fixes it. */
+@Composable
+private fun LiveNote(result: LiveNotifier.Result?, tracking: Boolean) {
+    val s = SwissTheme.colors
+    val context = LocalContext.current
+    val (text, action) = when {
+        result == LiveNotifier.Result.BLOCKED -> "Notifications are off for Hudson. Turn them on" to { LiveNotifier.openNotificationSettings(context) }
+        result == LiveNotifier.Result.FAILED -> "Your phone would not show the tracking card. Check notifications" to { LiveNotifier.openNotificationSettings(context) }
+        tracking && (result == LiveNotifier.Result.NOT_PROMOTED || !LiveNotifier.canPromote(context)) ->
+            "It is in your notifications. For the lock screen, allow Live Updates" to { LiveNotifier.openPromotionSettings(context) }
+        else -> return
+    }
+    Surface(onClick = action, color = Color.Transparent, contentColor = s.ink, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        Row(Modifier.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, style = Type.body.copy(fontSize = 14.sp, lineHeight = 19.sp), modifier = Modifier.weight(1f))
+            Icon(painterResource(R.drawable.ic_chevron), contentDescription = null, tint = s.muted, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
 @Composable
 private fun TrackButton(onClick: () -> Unit) {
     val s = SwissTheme.colors
@@ -392,7 +426,8 @@ private fun TrackingStrip(untilMs: Long, onStop: () -> Unit) {
         Box(Modifier.size(12.dp).clip(CircleShape).background(Color(0xFFD93A30)))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text("ON LOCK SCREEN", style = Type.block, color = s.paper)
+            // Only claim the lock screen when the phone has actually allowed it there.
+            Text(if (LiveNotifier.canPromote(LocalContext.current)) "ON LOCK SCREEN" else "IN NOTIFICATIONS", style = Type.block, color = s.paper)
             Text("UNTIL ${TimeText.clock(untilMs)}", style = Type.label.copy(fontSize = 10.sp), color = s.paper.copy(alpha = 0.7f))
         }
         Surface(onClick = onStop, shape = RoundedCornerShape(12.dp), color = s.paper, contentColor = s.ink, modifier = Modifier.height(48.dp).width(84.dp)) {
@@ -441,11 +476,7 @@ private fun SettingsScreen(
         if (Build.VERSION.SDK_INT >= 36 && !LiveNotifier.canPromote(context)) {
             Spacer(Modifier.height(8.dp))
             LinkRow("Allow tracking on the lock screen") {
-                context.startActivity(
-                    Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS)
-                        .putExtra(AndroidSettings.EXTRA_APP_PACKAGE, context.packageName)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
+                LiveNotifier.openPromotionSettings(context)
             }
         }
 

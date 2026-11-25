@@ -74,13 +74,16 @@ class WidgetSheetTest {
         val sheetW = 1180f
         // The line-colour poster for every state; the phone-colour look, light and dark, for the main ones.
         val phoneStates = setOf("4min", "now_one_later", "12min_two_lines_long_names", "no_trains")
-        val looks = listOf<Pair<String, PosterPalette?>>(
-            "" to null,
-            "_phone_light" to PhoneColors.palette(context, night = false),
-            "_phone_dark" to PhoneColors.palette(context, night = true),
-        )
-        for ((stateName, board) in states) for ((look, palette) in looks) {
-            if (palette != null && stateName !in phoneStates) continue
+        val looks = listOf<Pair<String, Boolean?>>("" to null, "_phone_light" to false, "_phone_dark" to true)
+        for ((stateName, board) in states) for ((look, night) in looks) {
+            if (night != null && stateName !in phoneStates) continue
+            // The phone's colours as the launcher would resolve them in light or dark mode.
+            val themed = night?.let {
+                val config = android.content.res.Configuration(context.resources.configuration)
+                config.uiMode = (config.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK.inv()) or
+                    if (it) android.content.res.Configuration.UI_MODE_NIGHT_YES else android.content.res.Configuration.UI_MODE_NIGHT_NO
+                context.createConfigurationContext(config)
+            }
             val name = stateName + look
             // Flow the widgets left to right, wrapping.
             var x = gap
@@ -101,7 +104,21 @@ class WidgetSheetTest {
             val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (look == "_phone_light") Color.BLACK else Color.WHITE; alpha = 170; textSize = 10f }
             sizes.forEachIndexed { i, (w, h) ->
                 val (px, py) = places[i]
-                val bmp = PosterRenderer.render(context, board, 0, 2, w.toFloat(), h.toFloat(), now, scale, palette)
+                val bmp = if (themed == null) PosterRenderer.render(context, board, 0, 2, w.toFloat(), h.toFloat(), now, scale)
+                else {
+                    // Put together the way the launcher does: the ground colour, then each stencil tinted with its colour.
+                    val out = Bitmap.createBitmap((w * scale).toInt(), (h * scale).toInt(), Bitmap.Config.ARGB_8888)
+                    val oc = Canvas(out)
+                    oc.drawColor(themed.getColor(PosterRenderer.groundRes(board, w.toFloat(), h.toFloat())))
+                    val layers = PosterRenderer.renderLayers(context, board, 0, 2, w.toFloat(), h.toFloat(), now, scale)
+                    for (painted in layers) {
+                        val p = Paint(Paint.FILTER_BITMAP_FLAG)
+                        painted.layer.tint?.let { p.colorFilter = android.graphics.PorterDuffColorFilter(themed.getColor(it), android.graphics.PorterDuff.Mode.SRC_IN) }
+                        assertEquals("stencils cost one byte a pixel", painted.layer.tint != null, painted.bitmap.config == Bitmap.Config.ALPHA_8)
+                        oc.drawBitmap(painted.bitmap, null, RectF(0f, 0f, out.width.toFloat(), out.height.toFloat()), p)
+                    }
+                    out
+                }
                 assertEquals("painted at the size asked for", (w * scale).toInt(), bmp.width)
                 c.save()
                 c.translate(px, py)

@@ -165,7 +165,7 @@ class WalkthroughTest {
         }
         step("03_tracking") {
             tap("TRACK ON LOCK SCREEN")
-            waitFor("ON LOCK SCREEN")
+            waitFor("UNTIL")
             settle(800)
             shot("03_tracking")
             tap("STOP")
