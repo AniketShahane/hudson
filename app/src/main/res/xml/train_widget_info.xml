@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Resizable from a one-row strip to a tall card. keyguard lets lock-screen hosts (LockStar on
+<!-- Resizable from a one-row strip to a tall card; the picture is painted for whatever size the
+     launcher gives (SizeMode.Exact), so these are only where resizing starts and stops. keyguard lets lock-screen hosts (LockStar on
      One UI, Android 16+ lock screens) offer it. Refreshing is done by WorkManager, not here. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/widget_description"

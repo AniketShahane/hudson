@@ -9,6 +9,7 @@ import app.hudson.domain.BoardState
 import app.hudson.domain.Boards
 import app.hudson.domain.Favorite
 import app.hudson.domain.LivePlan
+import app.hudson.domain.PosterLayout
 import app.hudson.domain.RefreshPlan
 import app.hudson.domain.TimeText
 import app.hudson.domain.at
@@ -221,5 +222,33 @@ class PosterTest {
         assertTrue(!app.hudson.domain.Ink.wantsDarkText(0xFFD93A30L))
         assertTrue(app.hudson.domain.Ink.wantsDarkText(0xFF65C100L))
         assertTrue(!app.hudson.domain.Ink.wantsDarkText(0xFF141414L))
+    }
+
+    @Test fun layoutFollowsTheRealSize() {
+        val strip = PosterLayout.plan(553f, 51f, 3)
+        assertEquals(PosterLayout.Kind.STRIP, strip.kind)
+        assertEquals(PosterLayout.Kind.WIDE, PosterLayout.plan(300f, 150f, 3).kind)
+        assertEquals(PosterLayout.Kind.WIDE, PosterLayout.plan(276f, 102f, 3).kind)
+        assertEquals(PosterLayout.Kind.SQUARE, PosterLayout.plan(150f, 150f, 3).kind)
+    }
+
+    @Test fun rowsOnlyTakeWhatThePosterCanSpare() {
+        // A 4x2 keeps the whole card for the poster.
+        assertEquals(0, PosterLayout.plan(300f, 150f, 4).rows)
+        // The widget in the bug report: one later train must not leave half the card empty.
+        val reported = PosterLayout.plan(262f, 200f, 1)
+        assertEquals(1, reported.rows)
+        assertEquals(200f - PosterLayout.ROW_HEIGHT - PosterLayout.ROWS_PADDING, reported.posterHeight, 0.01f)
+        // No later trains: no empty panel at any height.
+        assertEquals(400f, PosterLayout.plan(300f, 400f, 0).posterHeight, 0.01f)
+        // Never more rows than trains, nor than four.
+        assertEquals(2, PosterLayout.plan(300f, 400f, 2).rows)
+        assertEquals(4, PosterLayout.plan(300f, 400f, 9).rows)
+        // Whatever the size, the poster keeps at least a strip's height and fills what the rows leave.
+        for (w in 60..600 step 7) for (h in 40..500 step 7) for (n in 0..5) {
+            val p = PosterLayout.plan(w.toFloat(), h.toFloat(), n)
+            assertTrue(p.posterHeight > 39f && p.posterHeight <= h, "$w x $h")
+            if (p.rows > 0) assertTrue(p.posterHeight >= 120f, "$w x $h")
+        }
     }
 }

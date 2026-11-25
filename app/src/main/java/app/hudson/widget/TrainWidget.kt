@@ -6,8 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.unit.DpSize
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.glance.GlanceId
@@ -28,7 +27,9 @@ import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.updateAll
+import androidx.glance.background
 import androidx.glance.currentState
+import androidx.glance.layout.Box
 import androidx.glance.layout.ContentScale
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.state.GlanceStateDefinition
@@ -55,7 +56,9 @@ internal val FavoriteIndexKey = intPreferencesKey("favorite_index")
 class TrainWidget : GlanceAppWidget() {
     override val stateDefinition: GlanceStateDefinition<*> = PreferencesGlanceStateDefinition
 
-    override val sizeMode: SizeMode = SizeMode.Responsive(setOf(STRIP, WIDE, SQUARE, CARD, TALL))
+    // Exact: the picture is painted for the size the launcher really gives, one per orientation.
+    // Fixed size buckets made the launcher stretch a picture painted for some other shape.
+    override val sizeMode: SizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         Graph.init(context)
@@ -71,14 +74,6 @@ class TrainWidget : GlanceAppWidget() {
             Poster(board, pos, favorites.size)
         }
     }
-
-    companion object {
-        internal val STRIP = DpSize(110.dp, 48.dp)
-        internal val WIDE = DpSize(220.dp, 48.dp)
-        internal val SQUARE = DpSize(110.dp, 110.dp)
-        internal val CARD = DpSize(220.dp, 110.dp)
-        internal val TALL = DpSize(220.dp, 200.dp)
-    }
 }
 
 @Composable
@@ -86,16 +81,37 @@ private fun Poster(board: Board, pos: Int, count: Int) {
     val context = LocalContext.current
     val size = LocalSize.current
     val now = System.currentTimeMillis()
-    // Painted a little under the screen's density: sharp enough, and five sizes of it fit in a widget's memory budget.
-    val scale = context.resources.displayMetrics.density.coerceAtMost(2.5f)
-    val bitmap = PosterRenderer.render(context, board, pos, count, size.width.value, size.height.value, now, scale)
+    val w = size.width.value
+    val h = size.height.value
+    val bitmap = PosterRenderer.render(context, board, pos, count, w, h, now, paintScale(context, w, h))
     val tap = if (count > 1) actionRunCallback<CycleFavoriteAction>() else actionStartActivity<MainActivity>()
-    Image(
-        provider = ImageProvider(bitmap),
-        contentDescription = PosterRenderer.describe(board, now) + if (count > 1) " Tap for the next station." else "",
-        contentScale = ContentScale.FillBounds,
-        modifier = GlanceModifier.fillMaxSize().cornerRadius(PosterRenderer.RADIUS_DP.dp).clickable(tap),
-    )
+    // The colour behind and Crop (never FillBounds) mean a launcher that reports a slightly
+    // different size than it draws costs a sliver of margin, not a stretched picture.
+    Box(
+        modifier = GlanceModifier.fillMaxSize()
+            .cornerRadius(android.R.dimen.system_app_widget_background_radius)
+            .background(Color(PosterRenderer.ground(board, w, h)))
+            .clickable(tap),
+    ) {
+        Image(
+            provider = ImageProvider(bitmap),
+            contentDescription = PosterRenderer.describe(board, now) + if (count > 1) " Tap for the next station." else "",
+            contentScale = ContentScale.Crop,
+            modifier = GlanceModifier.fillMaxSize(),
+        )
+    }
+}
+
+/**
+ * Pixels per dp to paint at: the screen's own, unless the picture would then take more than a
+ * fifth of a screenful. The system caps all of a widget's pictures together (portrait and
+ * landscape here) at one and a half screens of pixels.
+ */
+private fun paintScale(context: Context, widthDp: Float, heightDp: Float): Float {
+    val dm = context.resources.displayMetrics
+    val budgetPx = dm.widthPixels.toFloat() * dm.heightPixels * 0.2f
+    val fits = kotlin.math.sqrt(budgetPx / (widthDp * heightDp).coerceAtLeast(1f))
+    return minOf(dm.density, fits).coerceAtLeast(1f)
 }
 
 class TrainWidgetReceiver : GlanceAppWidgetReceiver() {

@@ -13,7 +13,6 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
-import app.hudson.widget.PosterRenderer
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.work.testing.WorkManagerTestInitHelper
@@ -147,18 +146,6 @@ class WalkthroughTest {
         }
     }
 
-    /** Paints the widget the way the phone will and saves it beside the screenshots. */
-    private fun poster(name: String, favorite: Favorite, w: Float, h: Float, page: Int = 0, pages: Int = 2, emptyFeed: Boolean = false) {
-        val context = RuntimeEnvironment.getApplication()
-        val now = System.currentTimeMillis()
-        val feed = if (emptyFeed) null else runBlocking { Graph.feed.cached() }
-        val board = Boards.build(favorite, feed, now)
-        val bmp = PosterRenderer.render(context, board, page, pages, w, h, now, 2.5f)
-        val dir = java.io.File("build/outputs/roborazzi").apply { mkdirs() }
-        java.io.FileOutputStream(java.io.File(dir, "$name.png")).use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
-        println("[walk] poster $name ${bmp.width}x${bmp.height}: ${PosterRenderer.describe(board, now)}")
-    }
-
     @Test
     fun walkthrough() {
         rule.mainClock.autoAdvance = false
@@ -208,20 +195,6 @@ class WalkthroughTest {
             settle(1200)
             waitFor("TRACK ON LOCK SCREEN")
             shot("08_home_three")
-        }
-        step("09_widget_posters") {
-            val exp = Favorite.defaults[0]
-            val wtc = Favorite.defaults[1]
-            val hob = Favorite.create(app.hudson.core.Station.HOBOKEN, app.hudson.core.Direction.TO_NJ, emptyList(), "h")
-            poster("widget_4x2_exp", exp, 300f, 150f)
-            poster("widget_4x2_wtc", wtc, 300f, 150f, page = 1)
-            poster("widget_4x2_two_lines", hob, 300f, 150f, pages = 3, page = 2)
-            poster("widget_2x2_exp", exp, 150f, 150f)
-            poster("widget_2x2_two_lines", hob, 150f, 150f)
-            poster("widget_4x1_strip", wtc, 300f, 70f)
-            poster("widget_2x1_strip", exp, 150f, 60f)
-            poster("widget_4x3_tall", exp, 300f, 260f)
-            poster("widget_4x2_loading", exp, 300f, 150f, emptyFeed = true)
         }
         step("10_live_notification") {
             val card = runBlocking {
