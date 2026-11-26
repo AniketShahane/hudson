@@ -43,12 +43,12 @@ data class LiveCard(
     /** One line for phones without MetricStyle and for the collapsed card. */
     val summary: String,
     val endsAtMs: Long,
-    /** Clock times only, so it stays true however long the card sits unrefreshed: "Leaves 8:46 · then 8:52, 9:01". */
+    /** Clock times only, so it stays true however long the card sits unrefreshed: "8:46 from Exchange Pl · then 8:52, 9:01". */
     val detail: String = summary,
     val approach: Approach? = null,
     /** A few letters for the card's coloured tile: the destination's station code, "WTC". */
     val tile: String? = null,
-    /** The card's first line: where the next train goes and when, "→ WTC · 8:46". */
+    /** The card's first line: where the next train goes, "→ WTC". The system adds the countdown after it. */
     val headline: String = title,
 )
 
@@ -81,12 +81,14 @@ object LivePlan {
             detail = when {
                 first == null -> summary
                 else -> buildString {
-                    append("From ").append(board.favorite.station.short)
+                    append(TimeText.clock(first.atMs)).append(" from ").append(board.favorite.station.short)
                     val rest = trains.drop(1)
                     if (rest.isNotEmpty()) append(" · then ").append(rest.joinToString(", ") { TimeText.clock(it.atMs) })
                 }
             },
-            headline = first?.let { "→ ${it.label.substringBefore(" via ")} · ${TimeText.clock(it.atMs)}" } ?: board.favorite.compact,
+            // Only the destination: the system puts its own countdown straight after this line, and a
+            // clock time here ran into it ("7:2403:27").
+            headline = first?.let { "→ ${it.label.substringBefore(" via ")}" } ?: board.favorite.compact,
             approach = first?.let {
                 val left = (it.atMs - nowMs).coerceIn(0, APPROACH_WINDOW_MS)
                 Approach(

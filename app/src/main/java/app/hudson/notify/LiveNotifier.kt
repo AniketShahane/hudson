@@ -10,6 +10,9 @@ import android.content.Intent
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.provider.Settings
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.TypefaceSpan
 import app.hudson.R
 import app.hudson.domain.LiveCard
 import app.hudson.ui.MainActivity
@@ -87,7 +90,7 @@ object LiveNotifier {
         )
         val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_train)
-            .setContentTitle(card.headline)
+            .setContentTitle(headline(card.headline))
             .setContentText(card.detail)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -139,6 +142,17 @@ object LiveNotifier {
             builder.setStyle(Notification.BigTextStyle().bigText(card.detail))
         }
         return builder.build()
+    }
+
+    /**
+     * The first line. Android draws the card's text itself, so the app's own typeface cannot be
+     * used there; what can be asked for is one of the system's families, here the heaviest sans,
+     * which is the nearest thing to the poster's type. A phone may ignore the request and use its
+     * own font. Two no-break spaces follow, because One UI sets its countdown hard against the
+     * end of this line.
+     */
+    private fun headline(text: String): CharSequence = SpannableString(text + "\u00A0\u00A0").apply {
+        setSpan(TypefaceSpan("sans-serif-black"), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
     /** The system page with the "Live Updates" switch for this app; the plain notification page where that does not exist. */

@@ -202,9 +202,13 @@ class WidgetSheetTest {
                 approach = app.hudson.domain.Approach(360, 600, colors), tile = code,
             )
             p.color = ink; p.textSize = 34f; p.typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, 700, false)
-            c.drawText("→ $code · 8:46", 50f, top + 70f, p)
+            c.drawText("→ $code", 50f, top + 70f, p)
+            val after = 50f + p.measureText("→ $code") + 22f
+            p.textSize = 24f; p.typeface = android.graphics.Typeface.SANS_SERIF; p.alpha = 200
+            c.drawText("03:27", after, top + 70f, p)
+            p.alpha = 255
             p.textSize = 28f; p.typeface = android.graphics.Typeface.SANS_SERIF; p.alpha = 190
-            c.drawText("From Exchange Pl · then 8:52, 9:01", 50f, top + 112f, p)
+            c.drawText("8:46 from Exchange Pl · then 8:52, 9:01", 50f, top + 112f, p)
             p.alpha = 255
             c.drawBitmap(app.hudson.notify.LiveTile.draw(context, card)!!, null, RectF(cardW - 110f, top + 30f, cardW - 10f, top + 130f), Paint(Paint.FILTER_BITMAP_FLAG))
             // The track: ten dashes, six travelled, the rest dimmed as the system does.

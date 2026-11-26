@@ -179,8 +179,8 @@ class PlanTest {
         assertEquals("Exchange Pl → NY", card.title)
         assertEquals(3, card.metrics.size)
         // Clock times only in the text that may sit unrefreshed.
-        assertTrue(card.detail.startsWith("From Exchange Pl · then ") && "min" !in card.detail, card.detail)
-        assertEquals("→ WTC · " + TimeText.clock(now + 240_000), card.headline)
+        assertTrue(card.detail.startsWith(TimeText.clock(now + 240_000) + " from Exchange Pl · then ") && "min" !in card.detail, card.detail)
+        assertEquals("→ WTC", card.headline)
         assertEquals("WTC", card.tile)
         // Four minutes from leaving, on a ten-minute track: 360 of 600 seconds travelled.
         assertEquals(360, card.approach!!.progress)
