@@ -82,10 +82,15 @@ object Boards {
 /** Words and numbers for times, shared by the widget, the app and the notification. */
 object TimeText {
     private val clock12 = DateTimeFormatter.ofPattern("h:mm", Locale.US)
+    private val clockAmPm = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
 
     /** "8:42" in the phone's zone. Absolute, so it is still right if the widget is not redrawn. */
     fun clock(atMs: Long, zone: ZoneId = ZoneId.systemDefault()): String =
         clock12.format(Instant.ofEpochMilli(atMs).atZone(zone))
+
+    /** "5:30 PM", for times that may be hours old, where morning and evening must not be confused. */
+    fun clockAmPm(atMs: Long, zone: ZoneId = ZoneId.systemDefault()): String =
+        clockAmPm.format(Instant.ofEpochMilli(atMs).atZone(zone))
 
     /** Whole minutes until [atMs], rounded down; 0 means due now. */
     fun minutes(atMs: Long, nowMs: Long): Long = ((atMs - nowMs).coerceAtLeast(0)) / 60_000

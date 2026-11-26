@@ -71,6 +71,28 @@ jobs:
           unzip -l out/release/hudson.apk | grep -E "assets/dexopt/baseline.prof" || { echo "No baseline profile in the release APK"; exit 1; }
           ls -la out/release/hudson.apk
 
+      # The store bundle is only built where the upload key has been provided as repository secrets
+      # (see docs/play/PUBLISHING.md). Without them this step does nothing.
+      - name: Build the Google Play bundle (when an upload key is configured)
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+          HUDSON_STOREPASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
+          HUDSON_KEYALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          HUDSON_KEYPASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: |
+          if [ -z "$UPLOAD_KEYSTORE_BASE64" ]; then echo "No upload key configured; skipping the Play bundle."; exit 0; fi
+          echo "$UPLOAD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          HUDSON_STOREFILE="$RUNNER_TEMP/upload.jks" ./gradlew :app:bundlePlay --stacktrace
+          mkdir -p out/play && cp app/build/outputs/bundle/play/*.aab out/play/hudson.aab
+          rm -f "$RUNNER_TEMP/upload.jks"
+
+      - name: Upload the Google Play bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: hudson-play-bundle
+          path: out/play/hudson.aab
+          if-no-files-found: ignore
+
       - name: Upload the APK to install
         uses: actions/upload-artifact@v4
         with:

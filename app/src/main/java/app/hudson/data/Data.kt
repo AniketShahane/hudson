@@ -8,7 +8,9 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import app.hudson.data.feed.AlertsSnapshot
 import app.hudson.data.feed.FeedSnapshot
+import app.hudson.data.feed.PathAlerts
 import app.hudson.data.feed.RidePathFeed
 import app.hudson.domain.Favorite
 import kotlinx.coroutines.Dispatchers
@@ -24,15 +26,15 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-/** Where the raw feed comes from. Swapped for a fixed sample in tests. */
+/** Where a raw feed comes from. Swapped for a fixed sample in tests. */
 fun interface FeedSource {
     suspend fun fetch(): String
 }
 
-class HttpFeedSource(private val client: OkHttpClient) : FeedSource {
+class HttpFeedSource(private val client: OkHttpClient, private val url: String = RidePathFeed.URL) : FeedSource {
     override suspend fun fetch(): String = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url(RidePathFeed.URL)
+            .url(url)
             .header("Accept", "application/json")
             .header("Cache-Control", "no-cache")
             .build()
@@ -79,6 +81,36 @@ class FeedRepository(context: Context, @Volatile var source: FeedSource) {
                 tmp.writeText(body)
                 tmp.setLastModified(now)
                 if (!tmp.renameTo(file)) { file.writeText(body); file.setLastModified(now) }
+            }
+            state.value = snapshot
+            snapshot
+        }
+    }
+}
+
+/**
+ * PATH's alerts, kept the same way as the trains: the last good copy on disk, shown at once and
+ * refreshed while the app is open. Nothing fetches alerts in the background.
+ */
+class AlertsRepository(context: Context, @Volatile var source: FeedSource) {
+    private val file = File(context.filesDir, "alerts.json")
+    private val state = MutableStateFlow<AlertsSnapshot?>(null)
+    val flow: StateFlow<AlertsSnapshot?> = state
+
+    suspend fun cached(): AlertsSnapshot? = state.value ?: withContext(Dispatchers.IO) {
+        if (!file.exists()) null
+        else runCatching { PathAlerts.parse(file.readText(), file.lastModified()) }.getOrNull()?.also { state.value = it }
+    }
+
+    suspend fun refresh(maxAgeMs: Long = 0): Result<AlertsSnapshot> {
+        val now = System.currentTimeMillis()
+        cached()?.let { if (now - it.fetchedAtMs < maxAgeMs) return Result.success(it) }
+        return runCatching {
+            val body = source.fetch()
+            val snapshot = PathAlerts.parse(body, now)
+            withContext(Dispatchers.IO) {
+                file.writeText(body)
+                file.setLastModified(now)
             }
             state.value = snapshot
             snapshot
@@ -141,11 +173,15 @@ object Graph {
         private set
     lateinit var feed: FeedRepository
         private set
+    lateinit var alerts: AlertsRepository
+        private set
 
-    fun init(context: Context, source: FeedSource = HttpFeedSource(HttpFeedSource.client())) {
+    fun init(context: Context, source: FeedSource? = null, alertSource: FeedSource? = null) {
         if (::settings.isInitialized) return
         val app = context.applicationContext
+        val client by lazy { HttpFeedSource.client() }
         settings = SettingsStore(app)
-        feed = FeedRepository(app, source)
+        feed = FeedRepository(app, source ?: HttpFeedSource(client))
+        alerts = AlertsRepository(app, alertSource ?: HttpFeedSource(client, PathAlerts.URL))
     }
 }

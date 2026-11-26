@@ -4,3 +4,7 @@ local.properties
 .idea/
 *.iml
 .kotlin/
+# The Google Play upload key and its passwords: never commit these.
+keystore.properties
+*.jks
+upload-keystore*

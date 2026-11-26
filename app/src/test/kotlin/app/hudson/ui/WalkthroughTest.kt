@@ -37,33 +37,52 @@ import org.robolectric.annotation.GraphicsMode
 import java.time.OffsetDateTime
 import java.time.ZoneId
 
-/** A feed shaped like the real one, stamped "now" so the countdowns are live. */
+/**
+ * A feed shaped like the real one, with every station and line, stamped "now" so the countdowns
+ * are live. Trains are spaced a few minutes apart on each line, as on a weekday.
+ */
 object SampleFeed : FeedSource {
+    private data class Run(val line: app.hudson.core.Line, val color: String)
+
     override suspend fun fetch(): String {
         val stamp = OffsetDateTime.now(ZoneId.of("America/New_York")).toString()
-        fun m(target: String, secs: Int, color: String, sign: String) =
-            """{"target":"$target","secondsToArrival":"$secs","arrivalTimeMessage":"","lineColor":"$color","headSign":"$sign","lastUpdated":"$stamp"}"""
-        return """
-        {"results":[
-          {"consideredStation":"EXP","destinations":[
-            {"label":"ToNY","messages":[${m("WTC", 252, "D93A30", "World Trade Center")},${m("WTC", 610, "65C100", "World Trade Center")},${m("WTC", 980, "D93A30", "World Trade Center")},${m("WTC", 1330, "65C100", "World Trade Center")}]},
-            {"label":"ToNJ","messages":[${m("NWK", 130, "D93A30", "Newark")},${m("HOB", 420, "65C100", "Hoboken")}]}
-          ]},
-          {"consideredStation":"WTC","destinations":[
-            {"label":"ToNJ","messages":[${m("NWK", 75, "D93A30", "Newark")},${m("HOB", 300, "65C100", "Hoboken")},${m("NWK", 540, "D93A30", "Newark")},${m("HOB", 900, "65C100", "Hoboken")}]}
-          ]},
-          {"consideredStation":"HOB","destinations":[
-            {"label":"ToNJ","messages":[${m("JSQ", 200, "4D92FB,FF9900", "Journal Square via Hoboken")}]}
-          ]}
-        ]}
-        """.trimIndent()
+        fun m(target: app.hudson.core.Station, secs: Int, color: String) =
+            """{"target":"${target.code}","secondsToArrival":"$secs","arrivalTimeMessage":"","lineColor":"$color","headSign":"${target.title}","lastUpdated":"$stamp"}"""
+        val runs = app.hudson.core.Line.entries.map { Run(it, java.lang.Long.toHexString(it.color).takeLast(6).uppercase()) }
+        val stations = app.hudson.core.Station.entries.mapIndexed { n, station ->
+            val groups = app.hudson.core.Network.directions(station).map { direction ->
+                val toNy = direction == app.hudson.core.Direction.TO_NY
+                val messages = runs.filter { station in it.line.stations }.flatMapIndexed { k, run ->
+                    // Stations are listed west to east: the last is the New York end.
+                    val terminal = if (toNy) run.line.stations.last() else run.line.stations.first()
+                    if (terminal == station) emptyList()
+                    else (0 until 3).map { i -> m(terminal, 70 + (n * 53 + k * 170) % 230 + i * (360 + k * 40) + (if (toNy) 0 else 95), run.color) }
+                }
+                """{"label":"${direction.feedLabel}","messages":[${messages.joinToString(",")}]}"""
+            }
+            """{"consideredStation":"${station.code}","destinations":[${groups.joinToString(",")}]}"""
+        }
+        return """{"results":[${stations.joinToString(",")}]}"""
+    }
+}
+
+/**
+ * PATH's alerts as they really were on 25–26 Nov 2026 (a storm advisory and a lift shutdown still
+ * open), plus one made-up delay on the Newark line so a service alert is on screen too.
+ */
+object SampleAlerts : FeedSource {
+    override suspend fun fetch(): String {
+        val real = SampleAlerts::class.java.getResource("/alerts_sample.json")!!.readText().trim()
+        val sent = System.currentTimeMillis() - 6 * 60_000
+        val delay = """{"messageid":1,"sentdate2":"/Date($sent)/","Subject":"PATHAlert: Signal Problem","SentMessage":"NWK-WTC delayed. Crews are working on a signal problem at JSQ. JSQ-33, HOB-WTC, HOB-33 running.","TemplateName":"PATH - Signal Problem","state":"Open"}"""
+        return "[" + delay + "," + real.removePrefix("[")
     }
 }
 
 class TestHudsonApp : HudsonApp() {
     override fun onCreate() {
         WorkManagerTestInitHelper.initializeTestWorkManager(this)
-        Graph.init(this, SampleFeed)
+        Graph.init(this, SampleFeed, SampleAlerts)
         super.onCreate()
     }
 }
@@ -125,8 +144,9 @@ class WalkthroughTest {
         }
     }
 
-    private fun shot(name: String) {
-        captureScreenRoboImage("build/outputs/roborazzi/$name.png")
+    private fun shot(name: String, folder: String = "roborazzi") {
+        java.io.File("build/outputs/$folder").mkdirs()
+        captureScreenRoboImage("build/outputs/$folder/$name.png")
         println("[walk] shot $name")
     }
 
@@ -146,22 +166,30 @@ class WalkthroughTest {
         }
     }
 
+    private fun tapDescribed(description: String) {
+        rule.onNode(SemanticsMatcher("described \"$description\"") { node ->
+            node.config.getOrNull(SemanticsProperties.ContentDescription)?.any { it.startsWith(description) } == true
+        }).performSemanticsAction(SemanticsActions.OnClick)
+        settle()
+    }
+
     @Test
     fun walkthrough() {
         rule.mainClock.autoAdvance = false
         val context = RuntimeEnvironment.getApplication()
         shadowOf(context).grantPermissions(MainActivity.NOTIFICATION_PERMISSION)
 
-        step("01_home") {
+        step("01_my_trains") {
             waitFor("TRACK ON LOCK SCREEN")
             waitFor("THEN")
+            waitFor("Signal Problem")
             settle(1500)
-            shot("01_home")
+            shot("01_my_trains")
         }
         step("02_second_station") {
             rule.onAllNodesWithText("TO NEW JERSEY").onFirst().performSemanticsAction(SemanticsActions.OnClick)
-            settle(1200)
-            shot("02_wtc")
+            settle(1500)
+            shot("02_my_trains_wtc")
         }
         step("03_tracking") {
             tap("TRACK ON LOCK SCREEN")
@@ -171,32 +199,104 @@ class WalkthroughTest {
             tap("STOP")
             waitFor("TRACK ON LOCK SCREEN")
         }
-        step("04_settings") {
+        step("04_stations_list") {
+            tapDescribed("Stations")
+            waitFor("NEW JERSEY")
+            settle(1500)
+            shot("04_stations_list")
+            val described = rule.onAllNodes(isRoot()).fetchSemanticsNodes().flatMap { root ->
+                fun all(n: SemanticsNode): List<SemanticsNode> = listOf(n) + n.children.flatMap(::all)
+                all(root).flatMap { it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
+            }
+            assertTrue("every station is listed", app.hudson.core.Station.entries.all { st -> described.any { it.startsWith(st.title) } })
+        }
+        step("05_stations_map") {
+            tapDescribed("MAP view")
+            waitFor("MINUTES TO THE NEXT TRAIN")
+            settle(2200)
+            shot("05_stations_map")
+            tapDescribed("Journal Square")
+            waitFor("TO NEW YORK")
+            settle(1200)
+            shot("06_station_from_map")
+            back()
+            waitFor("MINUTES TO THE NEXT TRAIN")
+            tapDescribed("LIST view")
+            waitFor("NEW JERSEY")
+        }
+        step("07_station_board") {
+            tapDescribed("Hoboken")
+            waitFor("TO NEW JERSEY")
+            settle(1500)
+            shot("07_station_hoboken")
+            assertTrue("the lift alert that names Hoboken shows on its board", exists("Elevators Severe Storm Shutdown"))
+            // Android may put the app away and rebuild it at any moment: you must come back to the same page.
+            rule.activityRule.scenario.recreate()
+            settle(1500)
+            waitFor("TO NEW JERSEY")
+            assertTrue("still on Hoboken's board after the app is rebuilt", exists("HOBOKEN"))
+            // Saving it from here puts it in My trains.
+            rule.onAllNodesWithText("MY TRAINS").onFirst().performSemanticsAction(SemanticsActions.OnClick)
+            settle(800)
+            waitFor("IN MY TRAINS")
+            shot("08_station_saved")
+            assertTrue(runBlocking { Graph.settings.current().favorites.any { it.stationCode == "HOB" } })
+            back()
+            waitFor("NEW JERSEY")
+        }
+        step("09_alerts") {
+            tapDescribed("Alerts")
+            waitFor("EARLIER")
+            settle(1500)
+            shot("09_alerts")
+            assertTrue(exists("Signal Problem") && exists("PATH Inclement Weather Advisory"))
+            scrollTo("Track Condition")
+            tap("Track Condition")
+            settle(900)
+            assertTrue("an ended alert opens to show what it said", exists("resuming normal service"))
+            shot("10_alerts_earlier_open")
+        }
+        step("11_settings") {
+            tapDescribed("My trains")
+            waitFor("TRACK ON LOCK SCREEN")
+            settle(1000)
+            shot("11_my_trains_three")
             rule.onNodeWithContentDescription("Settings").performSemanticsAction(SemanticsActions.OnClick)
             settle(1200)
             waitFor("MY STATIONS")
-            shot("04_settings")
+            shot("12_settings")
         }
-        step("05_add") {
+        step("13_add") {
             tap("ADD A STATION")
             waitFor("1 · LEAVING FROM")
-            shot("05_add_empty")
+            shot("13_add_empty")
             tap("GROVE ST")
             waitFor("SAVE GROVE ST")
-            shot("06_add_grove")
+            shot("14_add_grove")
             rule.onNodeWithText("SAVE GROVE ST", substring = true).performSemanticsAction(SemanticsActions.OnClick)
             settle(1500)
             waitFor("MY STATIONS")
-            tap("Put it on the lock screen")
-            shot("07_settings_three")
         }
-        step("08_home_three") {
+        step("15_phone_colors_and_about") {
+            tap("MATCH MY PHONE")
+            settle(800)
+            assertTrue("the choice is saved", runBlocking { Graph.settings.current().matchPhone })
+            scrollTo("ABOUT")
+            settle(600)
+            shot("15_settings_about_phone_colors")
+            assertTrue(exists("not made by, affiliated with or endorsed by"))
             back()
             settle(1200)
             waitFor("TRACK ON LOCK SCREEN")
-            shot("08_home_three")
+            shot("16_my_trains_phone_colors")
+            tapDescribed("Stations")
+            waitFor("NEW JERSEY")
+            settle(1200)
+            shot("17_stations_phone_colors")
+            tapDescribed("My trains")
+            waitFor("TRACK ON LOCK SCREEN")
         }
-        step("10_live_notification") {
+        step("18_live_notification") {
             val card = runBlocking {
                 val feed = Graph.feed.cached()
                 val now = System.currentTimeMillis()
@@ -215,20 +315,67 @@ class WalkthroughTest {
             println("[walk] live title=${posted.first().extras.getCharSequence("android.title")} text=${posted.first().extras.getCharSequence("android.text")}")
         }
 
-        step("11_phone_colors") {
-            rule.onNodeWithContentDescription("Settings").performSemanticsAction(SemanticsActions.OnClick)
-            settle(1200)
-            waitFor("COLORS")
-            tap("MATCH MY PHONE")
-            settle(800)
-            shot("11_settings_phone_colors")
-            assertTrue("the choice is saved", runBlocking { Graph.settings.current().matchPhone })
-            back()
-            settle(1200)
-            waitFor("TRACK ON LOCK SCREEN")
-            shot("12_home_phone_colors")
-        }
-
         if (failures.isNotEmpty()) throw AssertionError("Walkthrough steps failed:\n" + failures.joinToString("\n"))
+    }
+
+    /**
+     * The five screens for the Google Play listing, on a small 9:16 phone (1440 x 2560): also the
+     * check that nothing is cramped or cut off at the narrowest common width.
+     */
+    @Test
+    @Config(sdk = [36], qualifiers = "w360dp-h640dp-port-night-xxxhdpi", application = TestHudsonApp::class)
+    fun storeScreenshots() {
+        rule.mainClock.autoAdvance = false
+        step("store") {
+            waitFor("TRACK ON LOCK SCREEN")
+            waitFor("Signal Problem")
+            settle(1500)
+            shot("phone_1_my_trains", "store")
+            tapDescribed("Stations")
+            waitFor("NEW JERSEY")
+            settle(1500)
+            shot("phone_2_stations", "store")
+            tapDescribed("MAP view")
+            waitFor("MINUTES TO THE NEXT TRAIN")
+            settle(2200)
+            shot("phone_3_map", "store")
+            tapDescribed("Exchange Place")
+            waitFor("TO NEW YORK")
+            settle(1500)
+            shot("phone_4_station", "store")
+            back()
+            waitFor("MINUTES TO THE NEXT TRAIN")
+            tapDescribed("Alerts")
+            waitFor("EARLIER")
+            settle(1500)
+            shot("phone_5_alerts", "store")
+        }
+        if (failures.isNotEmpty()) throw AssertionError("Store screenshots failed:\n" + failures.joinToString("\n"))
+    }
+
+    /** The same app in light mode, which nothing else here exercises. */
+    @Test
+    @Config(sdk = [36], qualifiers = "w412dp-h915dp-port-notnight-xhdpi", application = TestHudsonApp::class)
+    fun lightMode() {
+        rule.mainClock.autoAdvance = false
+        step("light") {
+            waitFor("TRACK ON LOCK SCREEN")
+            waitFor("Signal Problem")
+            settle(1500)
+            shot("light_1_my_trains")
+            tapDescribed("Stations")
+            waitFor("NEW JERSEY")
+            settle(1500)
+            shot("light_2_stations")
+            tapDescribed("MAP view")
+            waitFor("MINUTES TO THE NEXT TRAIN")
+            settle(2200)
+            shot("light_3_map")
+            tapDescribed("Alerts")
+            waitFor("EARLIER")
+            settle(1500)
+            shot("light_4_alerts")
+        }
+        if (failures.isNotEmpty()) throw AssertionError("Light mode failed:\n" + failures.joinToString("\n"))
     }
 }

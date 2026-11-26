@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -96,6 +97,8 @@ import app.hudson.core.Station
 import app.hudson.data.Graph
 import app.hudson.data.Settings
 import app.hudson.data.feed.FeedSnapshot
+import app.hudson.domain.Alert
+import app.hudson.domain.Alerts
 import app.hudson.domain.Board
 import app.hudson.domain.BoardState
 import app.hudson.domain.Boards
@@ -114,129 +117,23 @@ import kotlinx.coroutines.launch
 private const val APP_REFRESH_MS = 30_000L
 private val NightInk = Color(0xFF141414)
 
-private enum class Screen { HOME, SETTINGS, ADD }
-
-/** The whole app: home (just the trains), settings behind the gear, and adding a station. */
-@Composable
-fun HomeScreen(askNotificationsOnStart: Boolean = false) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val settings by Graph.settings.flow.collectAsStateWithLifecycle(initialValue = null)
-    var feed by remember { mutableStateOf<FeedSnapshot?>(null) }
-    var screenName by rememberSaveable { mutableStateOf(Screen.HOME.name) }
-    val screen = Screen.valueOf(screenName)
-
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(Unit) {
-        feed = Graph.feed.cached()
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) {
-                Graph.feed.refresh(maxAgeMs = 10_000).onSuccess { feed = it }
-                delay(APP_REFRESH_MS)
-            }
-        }
-    }
-    val now by produceState(System.currentTimeMillis()) {
-        while (true) {
-            delay(1_000)
-            value = System.currentTimeMillis()
-        }
-    }
-
-    fun notificationsAllowed() =
-        ContextCompat.checkSelfPermission(context, MainActivity.NOTIFICATION_PERMISSION) == PackageManager.PERMISSION_GRANTED
-    // What became of the last attempt to start tracking, so a tap is never met with silence.
-    var liveResult by remember { mutableStateOf<LiveNotifier.Result?>(null) }
-    fun startTracking() = scope.launch {
-        val st = settings ?: return@launch
-        liveResult = LiveSession.start(context, st.appFavorite)
-    }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startTracking()
-        else {
-            // Once refused, Android stops showing its dialog; the switch is then only in Settings.
-            liveResult = LiveNotifier.Result.BLOCKED
-            LiveNotifier.openNotificationSettings(context)
-        }
-    }
-    LaunchedEffect(askNotificationsOnStart) {
-        if (askNotificationsOnStart && !notificationsAllowed()) permission.launch(MainActivity.NOTIFICATION_PERMISSION)
-    }
-
-    fun save(transform: (Settings) -> Settings) = scope.launch {
-        Graph.settings.update(transform)
-        Widgets.repaintAll(context)
-    }
-
-    BackHandler(enabled = screen != Screen.HOME) {
-        screenName = if (screen == Screen.ADD) Screen.SETTINGS.name else Screen.HOME.name
-    }
-
-    val s = SwissTheme.colors
-    Box(Modifier.fillMaxSize().background(s.paper)) {
-        val st = settings ?: return@Box
-        // Going deeper slides in from the right, coming back from the left: you always know where you are.
-        AnimatedContent(
-            targetState = screen,
-            transitionSpec = {
-                val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
-                (slideInHorizontally(Motion.move()) { it / 6 * dir } + fadeIn(Motion.enter)) togetherWith
-                    (slideOutHorizontally(Motion.move()) { -it / 6 * dir } + fadeOut(Motion.exit))
-            },
-            label = "screen",
-        ) { target ->
-            when (target) {
-                Screen.HOME -> Home(
-                    settings = st, feed = feed, now = now,
-                    onPick = { i -> save { it.copy(appFavorite = i) } },
-                    onTrack = {
-                        if (notificationsAllowed()) startTracking()
-                        else permission.launch(MainActivity.NOTIFICATION_PERMISSION)
-                    },
-                    onStop = { liveResult = null; scope.launch { LiveSession.stop(context) } },
-                    liveResult = liveResult,
-                    onSettings = { screenName = Screen.SETTINGS.name },
-                )
-                Screen.SETTINGS -> SettingsScreen(
-                    settings = st,
-                    onBack = { screenName = Screen.HOME.name },
-                    onAdd = { screenName = Screen.ADD.name },
-                    onReorder = { list ->
-                        save { cur ->
-                            val selectedId = cur.favorites.getOrNull(Math.floorMod(cur.appFavorite, cur.favorites.size.coerceAtLeast(1)))?.id
-                            cur.copy(favorites = list, appFavorite = list.indexOfFirst { it.id == selectedId }.coerceAtLeast(0))
-                        }
-                    },
-                    onRemove = { id -> save { cur -> cur.copy(favorites = cur.favorites.filterNot { it.id == id }, appFavorite = 0) } },
-                    onMinutes = { m -> save { it.copy(liveMinutes = m) } },
-                    onMatchPhone = { on -> save { it.copy(matchPhone = on) } },
-                )
-                Screen.ADD -> AddScreen(
-                    onClose = { screenName = Screen.SETTINGS.name },
-                    onSave = { f ->
-                        save { it.copy(favorites = it.favorites + f) }
-                        screenName = Screen.SETTINGS.name
-                    },
-                )
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // Home
 
 @Composable
-private fun Home(settings: Settings, feed: FeedSnapshot?, now: Long, onPick: (Int) -> Unit, onTrack: () -> Unit, onStop: () -> Unit, liveResult: LiveNotifier.Result?, onSettings: () -> Unit) {
+internal fun Home(
+    settings: Settings, feed: FeedSnapshot?, now: Long, onPick: (Int) -> Unit, onTrack: () -> Unit, onStop: () -> Unit,
+    liveResult: LiveNotifier.Result?, onSettings: () -> Unit, alerts: List<Alert> = emptyList(), onAlerts: () -> Unit = {},
+) {
     val s = SwissTheme.colors
     val favorites = settings.favorites.ifEmpty { Favorite.defaults }
     val selected = Math.floorMod(settings.appFavorite, favorites.size)
     val board = Boards.build(favorites[selected], feed, now)
     val tracking = settings.liveUntilMs > now
 
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 16.dp)) {
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("PATH", style = Type.wordmark, color = s.ink, modifier = Modifier.semantics { heading() })
+            Text("HUDSON", style = Type.wordmark, color = s.ink, modifier = Modifier.semantics { heading() })
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) {
                 Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings", tint = s.ink)
@@ -245,6 +142,14 @@ private fun Home(settings: Settings, feed: FeedSnapshot?, now: Long, onPick: (In
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Spacer(Modifier.height(12.dp))
             StationSwitcher(favorites, selected, onPick)
+            // Trouble on this station or its lines, said once, where the trains are: tap for the full alert.
+            val here = Alerts.at(favorites[selected].station, alerts)
+            Column(Modifier.animateContentSize(Motion.resize)) {
+                if (here.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    AlertBanner(here, onAlerts)
+                }
+            }
             Spacer(Modifier.height(16.dp))
             // Switching station slides the whole board the way you moved along the row of stations.
             AnimatedContent(
@@ -285,6 +190,22 @@ private fun Home(settings: Settings, feed: FeedSnapshot?, now: Long, onPick: (In
     }
 }
 
+/** One line saying there is an alert for this station, leading to the Alerts tab. */
+@Composable
+private fun AlertBanner(alerts: List<Alert>, onClick: () -> Unit) {
+    val s = SwissTheme.colors
+    val first = alerts.first()
+    Surface(onClick = onClick, shape = RoundedCornerShape(14.dp), color = s.block, contentColor = s.ink, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(R.drawable.ic_tab_alerts), contentDescription = "Alert", tint = if (Alerts.disrupts(alerts)) s.alert else s.muted, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(first.title, style = Type.bodyBold.copy(fontSize = 14.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (alerts.size > 1) Text("+${alerts.size - 1}", style = Type.label.copy(fontSize = 11.sp), color = s.muted, modifier = Modifier.padding(start = 8.dp))
+            Icon(painterResource(R.drawable.ic_chevron), contentDescription = null, tint = s.muted, modifier = Modifier.padding(start = 6.dp).size(16.dp))
+        }
+    }
+}
+
 /** Your stations as big blocks: filled is the one shown. Two or three share the width; more scroll. */
 @Composable
 private fun StationSwitcher(favorites: List<Favorite>, selected: Int, onPick: (Int) -> Unit) {
@@ -305,7 +226,7 @@ private fun StationSwitcher(favorites: List<Favorite>, selected: Int, onPick: (I
 }
 
 @Composable
-private fun StationBlock(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun StationBlock(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val s = SwissTheme.colors
     Surface(
         onClick = onClick,
@@ -413,7 +334,7 @@ private fun Hero(board: Board, now: Long, height: Int) {
 }
 
 @Composable
-private fun TrainRow(d: Departure, now: Long) {
+internal fun TrainRow(d: Departure, now: Long) {
     val s = SwissTheme.colors
     Row(Modifier.fillMaxWidth().height(60.dp).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
         LineBar(d.colors, width = 8, height = 34)
@@ -426,7 +347,7 @@ private fun TrainRow(d: Departure, now: Long) {
 }
 
 @Composable
-private fun LineBar(colors: List<Long>, width: Int, height: Int) {
+internal fun LineBar(colors: List<Long>, width: Int, height: Int) {
     Column(Modifier.size(width.dp, height.dp).clip(RoundedCornerShape(2.dp))) {
         colors.ifEmpty { listOf(0xFF8A8A8AL) }.take(2).forEach { c -> Box(Modifier.fillMaxWidth().weight(1f).background(Color(c.toInt()))) }
     }
@@ -484,7 +405,7 @@ private fun TrackingStrip(untilMs: Long, onStop: () -> Unit) {
 // Settings
 
 @Composable
-private fun SettingsScreen(
+internal fun SettingsScreen(
     settings: Settings,
     onBack: () -> Unit,
     onAdd: () -> Unit,
@@ -541,6 +462,16 @@ private fun SettingsScreen(
                 )
             }
         }
+        SectionLabel("ABOUT")
+        Text(
+            "Hudson is an independent app. It is not made by, affiliated with or endorsed by the Port Authority of New York and New Jersey. " +
+                "Train times and alerts are PATH's own, read from its public feeds at panynj.gov, and can be wrong or late; check station signs before you travel.",
+            style = Type.body.copy(fontSize = 14.sp, lineHeight = 20.sp), color = s.ink, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+        )
+        LinkRow("PATH's official site") { openLink(context, "https://www.panynj.gov/path/en/index.html") }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
+        LinkRow("Privacy policy") { openLink(context, PRIVACY_URL) }
+        Text("VERSION ${appVersion(context)}", style = Type.label.copy(fontSize = 11.sp), color = s.muted, modifier = Modifier.padding(start = 4.dp, top = 12.dp))
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -611,7 +542,7 @@ private fun Reorderable(favorites: List<Favorite>, onReorder: (List<Favorite>) -
 // Add a station
 
 @Composable
-private fun AddScreen(onClose: () -> Unit, onSave: (Favorite) -> Unit) {
+internal fun AddScreen(onClose: () -> Unit, onSave: (Favorite) -> Unit) {
     val s = SwissTheme.colors
     var station by remember { mutableStateOf<Station?>(null) }
     var direction by remember { mutableStateOf<Direction?>(null) }
@@ -670,7 +601,7 @@ private fun AddScreen(onClose: () -> Unit, onSave: (Favorite) -> Unit) {
 // Shared pieces
 
 @Composable
-private fun TopBar(title: String, icon: Int, iconLabel: String, onIcon: () -> Unit) {
+internal fun TopBar(title: String, icon: Int, iconLabel: String, onIcon: () -> Unit) {
     val s = SwissTheme.colors
     Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onIcon, modifier = Modifier.size(48.dp)) { Icon(painterResource(icon), contentDescription = iconLabel, tint = s.ink) }
@@ -680,12 +611,12 @@ private fun TopBar(title: String, icon: Int, iconLabel: String, onIcon: () -> Un
 }
 
 @Composable
-private fun SectionLabel(text: String) {
+internal fun SectionLabel(text: String) {
     Text(text, style = Type.label, color = SwissTheme.colors.muted, modifier = Modifier.padding(start = 4.dp, top = 24.dp, bottom = 10.dp).semantics { heading() })
 }
 
 @Composable
-private fun OutlineBlock(text: String, icon: Int, onClick: () -> Unit) {
+internal fun OutlineBlock(text: String, icon: Int, onClick: () -> Unit) {
     val s = SwissTheme.colors
     Surface(onClick = onClick, shape = RoundedCornerShape(16.dp), color = Color.Transparent, contentColor = s.ink, border = BorderStroke(2.dp, s.ink), modifier = Modifier.fillMaxWidth().height(56.dp)) {
         Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
@@ -697,7 +628,7 @@ private fun OutlineBlock(text: String, icon: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun LinkRow(text: String, onClick: () -> Unit) {
+internal fun LinkRow(text: String, onClick: () -> Unit) {
     val s = SwissTheme.colors
     Surface(onClick = onClick, color = Color.Transparent, contentColor = s.ink, modifier = Modifier.fillMaxWidth().height(60.dp)) {
         Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -706,3 +637,13 @@ private fun LinkRow(text: String, onClick: () -> Unit) {
         }
     }
 }
+
+/** Where the privacy policy is published (the docs folder of the project, served by GitHub Pages). */
+internal const val PRIVACY_URL = "https://aniketshahane.github.io/hudson/privacy.html"
+
+internal fun openLink(context: android.content.Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+}
+
+internal fun appVersion(context: android.content.Context): String =
+    runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: ""

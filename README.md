@@ -1,7 +1,19 @@
-# Hudson — PATH train widget
+# Hudson — unofficial PATH train times
 
-A Material 3 Expressive widget (and small app) for PATH departures, built for a Galaxy S25 Ultra
-on One UI 9 (Android 17). Personal, sideloaded.
+An Android app and home-screen widget for PATH departures and alerts. Independent: not made by,
+affiliated with or endorsed by the Port Authority of New York and New Jersey.
+
+- **My trains**: your saved stations, the next train as one giant number.
+- **Stations**: all 13 stations as a list (next train each way) or on a live line map; optional
+  "nearest station" from one approximate location fix.
+- **Alerts**: PATH's own alert feed, current and ended, with the lines and stations each one touches.
+- **Widget** and **lock-screen tracking**, as below.
+
+Data: `ridepath.json` (arrivals) and `alerts?agency=PATH&hours=24` (alerts) on www.panynj.gov.
+Nothing runs in the background unless a widget is on the home screen or a train is being tracked.
+
+**Publishing on Google Play:** see [docs/play/PUBLISHING.md](docs/play/PUBLISHING.md) and
+[docs/play/listing.md](docs/play/listing.md). The privacy policy is [docs/privacy.html](docs/privacy.html).
 
 ## What it does
 

@@ -22,7 +22,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settings by Graph.settings.flow.collectAsStateWithLifecycle(initialValue = null)
             HudsonTheme(matchPhone = settings?.matchPhone == true) {
-                HomeScreen(askNotificationsOnStart = ask)
+                HudsonRoot(askNotificationsOnStart = ask)
             }
         }
     }

@@ -4,6 +4,9 @@
     *** Companion;
     kotlinx.serialization.KSerializer serializer(...);
 }
+# The places in the app's navigation are saved and restored by their serializers.
+-keep class app.hudson.ui.*Key { *; }
+-keep class app.hudson.ui.*Key$* { *; }
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**

@@ -226,4 +226,43 @@ class WidgetSheetTest {
         val dir = File("build/outputs/roborazzi").apply { mkdirs() }
         FileOutputStream(File(dir, "live_card_mock.png")).use { sheet.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
+
+    /** The Google Play listing's pictures: the 512 px icon and the 1024 x 500 feature graphic. */
+    @Test
+    fun storeGraphics() {
+        val context = RuntimeEnvironment.getApplication()
+        val dir = File("build/outputs/store").apply { mkdirs() }
+        fun layer(id: Int, size: Int): Bitmap {
+            val b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            context.getDrawable(id)!!.apply { setBounds(0, 0, size, size) }.draw(Canvas(b))
+            return b
+        }
+        // Play wants the full square and rounds it itself: the middle 72 of the icon's 108 dp, at 512 px.
+        val full = 768
+        val icon = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        Canvas(icon).apply {
+            val inset = -(full - 512) / 2f
+            drawBitmap(layer(app.hudson.R.drawable.ic_launcher_background, full), inset, inset, null)
+            drawBitmap(layer(app.hudson.R.drawable.ic_launcher_foreground, full), inset, inset, null)
+        }
+        FileOutputStream(File(dir, "icon_512.png")).use { icon.compress(Bitmap.CompressFormat.PNG, 100, it) }
+
+        val feature = Bitmap.createBitmap(1024, 500, Bitmap.Config.ARGB_8888)
+        Canvas(feature).apply {
+            drawColor(0xFFD93A30.toInt())
+            // The tunnel and its train, large, running off the right edge.
+            val art = 900
+            drawBitmap(layer(app.hudson.R.drawable.ic_launcher_foreground, art), 1024f - art * 0.60f, 500f - art * 0.80f, null)
+            val face = androidx.core.content.res.ResourcesCompat.getFont(context, app.hudson.R.font.archivo_black)
+            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = face; textSize = 112f; letterSpacing = -0.02f }
+            drawText("HUDSON", 64f, 222f, p)
+            p.textSize = 40f; p.letterSpacing = 0f
+            drawText("PATH TRAIN TIMES", 68f, 296f, p)
+            drawText("AT A GLANCE", 68f, 344f, p)
+            p.typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, 700, false); p.textSize = 22f; p.alpha = 215; p.letterSpacing = 0.14f
+            drawText("AN UNOFFICIAL APP", 70f, 430f, p)
+        }
+        FileOutputStream(File(dir, "feature_1024x500.png")).use { feature.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        assertEquals(512, icon.width)
+    }
 }

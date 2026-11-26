@@ -278,3 +278,67 @@ class PosterTest {
         }
     }
 }
+
+/** Against a real day of PATH's alert feed (25–26 Nov 2026: a storm, lift outages, two delays that came and went). */
+class AlertsTest {
+    private val snapshot = app.hudson.data.feed.PathAlerts.parse(
+        AlertsTest::class.java.getResource("/alerts_sample.json")!!.readText(), 1_795_651_300_000,
+    )
+
+    @Test fun readsTheFeed() {
+        assertEquals(22, snapshot.messages.size)
+        assertTrue(snapshot.messages.zipWithNext().all { (a, b) -> a.sentAtMs >= b.sentAtMs }, "newest first")
+        assertEquals(1_795_651_201_258, snapshot.messages.first().sentAtMs)
+    }
+
+    @Test fun showsEachStandingAlertOnce() {
+        val now = app.hudson.domain.Alerts.current(snapshot)
+        // The weather advisory was sent three times and the lift shutdown twice (the first since closed).
+        assertEquals(listOf("Hoboken and Exchange Place Elevators Severe Storm Shutdown", "PATH Inclement Weather Advisory"), now.map { it.title })
+        assertEquals(listOf(app.hudson.domain.AlertKind.ELEVATOR, app.hudson.domain.AlertKind.WEATHER), now.map { it.kind })
+        val lifts = now.first()
+        assertEquals(setOf(Station.HOBOKEN, Station.EXCHANGE_PLACE, Station.NEWPORT), lifts.stations.toSet())
+        assertTrue(!lifts.body.startsWith("05:30"), "PATH's own time stamp is dropped: " + lifts.body)
+        assertTrue("RidePATH" !in now.last().body)
+        assertTrue(!app.hudson.domain.Alerts.disrupts(now))
+    }
+
+    @Test fun findsLinesAndStationsInPathsWording() {
+        val earlier = app.hudson.domain.Alerts.earlier(snapshot, limit = 30)
+        // A delay and the update that ends it share a heading; only the newer is kept.
+        val track = earlier.single { it.title == "Track Condition" }
+        assertTrue("resuming normal service" in track.body, track.body)
+        assertEquals(listOf(app.hudson.core.Line.NWK_WTC), track.lines)
+        assertEquals(listOf(Station.EXCHANGE_PLACE), track.stations)
+        assertEquals(app.hudson.domain.AlertKind.SERVICE, track.kind)
+        // "NWK-WTC resuming" names a line; the trouble was at Newark, and no 33rd Street is implied.
+        val police = earlier.single { it.title == "PAPD Notification" }
+        assertEquals(listOf(Station.NEWARK), police.stations)
+        // The original notice lists the lines still running; only the delayed one is affected.
+        val notice = app.hudson.domain.Alerts.of(snapshot.messages.first { "PAPD responding" in it.message })
+        assertEquals(listOf(app.hudson.core.Line.NWK_WTC), notice.lines)
+        // "runs from 33 St-bound track" is about Newport, not 33rd Street.
+        val newport = earlier.first { "33 St-bound" in it.body }
+        assertEquals(listOf(Station.NEWPORT), newport.stations)
+        assertTrue(earlier.zipWithNext().all { (a, b) -> a.sentAtMs >= b.sentAtMs })
+    }
+
+    @Test fun alertsAtAStation() {
+        val now = app.hudson.domain.Alerts.current(snapshot)
+        assertEquals(1, app.hudson.domain.Alerts.at(Station.HOBOKEN, now).size)
+        assertEquals(0, app.hudson.domain.Alerts.at(Station.THIRTY_THIRD, now).size)
+        assertEquals(emptyList(), app.hudson.domain.Alerts.current(null))
+    }
+
+    @Test fun nearestStation() {
+        val (station, metres) = app.hudson.core.Geo.nearest(40.7170, -74.0335)!!
+        assertEquals(Station.EXCHANGE_PLACE, station)
+        assertTrue(metres < 200, metres.toString())
+        // On Church Street by the Oculus: World Trade Center, not Exchange Place across the river.
+        assertEquals(Station.WTC, app.hudson.core.Geo.nearest(40.7115, -74.0105)!!.first)
+        assertNull(app.hudson.core.Geo.nearest(34.05, -118.24), "Los Angeles is not near PATH")
+        assertEquals("350 m", app.hudson.core.Geo.distance(340.0))
+        assertEquals("1.2 km", app.hudson.core.Geo.distance(1234.0))
+        assertEquals(Station.entries.toSet(), app.hudson.core.Line.entries.flatMap { it.stations }.toSet())
+    }
+}
