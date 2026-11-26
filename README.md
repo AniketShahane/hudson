@@ -5,7 +5,7 @@ on One UI 9 (Android 17). Personal, sideloaded.
 
 ## What it does
 
-- **Widget** (Glance, painted at the exact size the launcher gives): one-row strip, square, wide poster, and later trains listed underneath when it is tall.
+- **Widget** (plain RemoteViews, painted at the exact size the launcher gives; the next station is preloaded so a tap only turns the page): one-row strip, square, wide poster, and later trains listed underneath when it is tall.
   The next train is a big countdown drawn by a system `Chronometer`, so it ticks every second
   without waking the app; later trains are clock times, which never go stale.
 - **Colors**: Settings → Colors switches the app and widget between the PATH line colors and your

@@ -10,6 +10,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -99,7 +105,6 @@ import app.hudson.domain.Ink
 import app.hudson.domain.TimeText
 import app.hudson.notify.LiveNotifier
 import app.hudson.widget.PosterRenderer
-import app.hudson.widget.TrainWidget
 import app.hudson.widget.Widgets
 import app.hudson.widget.TrainWidgetReceiver
 import app.hudson.work.LiveSession
@@ -170,7 +175,16 @@ fun HomeScreen(askNotificationsOnStart: Boolean = false) {
     val s = SwissTheme.colors
     Box(Modifier.fillMaxSize().background(s.paper)) {
         val st = settings ?: return@Box
-        AnimatedContent(targetState = screen, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { target ->
+        // Going deeper slides in from the right, coming back from the left: you always know where you are.
+        AnimatedContent(
+            targetState = screen,
+            transitionSpec = {
+                val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                (slideInHorizontally(Motion.move()) { it / 6 * dir } + fadeIn(Motion.enter)) togetherWith
+                    (slideOutHorizontally(Motion.move()) { -it / 6 * dir } + fadeOut(Motion.exit))
+            },
+            label = "screen",
+        ) { target ->
             when (target) {
                 Screen.HOME -> Home(
                     settings = st, feed = feed, now = now,
@@ -232,19 +246,35 @@ private fun Home(settings: Settings, feed: FeedSnapshot?, now: Long, onPick: (In
             Spacer(Modifier.height(12.dp))
             StationSwitcher(favorites, selected, onPick)
             Spacer(Modifier.height(16.dp))
-            Hero(board, now, height = 250)
-            Spacer(Modifier.height(20.dp))
-            if (board.later.isNotEmpty()) {
-                Text("THEN", style = Type.label, color = s.muted, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
-                board.later.take(4).forEachIndexed { i, d ->
-                    if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
-                    TrainRow(d, now)
+            // Switching station slides the whole board the way you moved along the row of stations.
+            AnimatedContent(
+                targetState = selected,
+                transitionSpec = {
+                    val dir = if (targetState > initialState) 1 else -1
+                    (slideInHorizontally(Motion.move()) { it / 5 * dir } + fadeIn(Motion.enter)) togetherWith
+                        (slideOutHorizontally(Motion.move()) { -it / 5 * dir } + fadeOut(Motion.exit))
+                },
+                label = "station",
+            ) { shown ->
+                val shownBoard = if (shown == selected) board else Boards.build(favorites[shown.coerceIn(favorites.indices)], feed, now)
+                Column(Modifier.animateContentSize(Motion.resize)) {
+                    Hero(shownBoard, now, height = 250)
+                    Spacer(Modifier.height(20.dp))
+                    if (shownBoard.later.isNotEmpty()) {
+                        Text("THEN", style = Type.label, color = s.muted, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+                        shownBoard.later.take(4).forEachIndexed { i, d ->
+                            if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
+                            TrainRow(d, now)
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(16.dp))
         }
-        LiveNote(liveResult, tracking)
-        if (tracking) TrackingStrip(settings.liveUntilMs, onStop) else TrackButton(onTrack)
+        Column(Modifier.animateContentSize(Motion.resize)) { LiveNote(liveResult, tracking) }
+        AnimatedContent(targetState = tracking, transitionSpec = { fadeIn(Motion.enter) togetherWith fadeOut(Motion.exit) }, label = "tracking") { on ->
+            if (on) TrackingStrip(settings.liveUntilMs, onStop) else TrackButton(onTrack)
+        }
         Text(
             if (board.state == BoardState.STALE) "NO SIGNAL · " + TimeText.updated(board.fetchedAtMs).uppercase() else TimeText.updated(board.fetchedAtMs).uppercase(),
             style = Type.label.copy(fontSize = 11.sp),
@@ -280,9 +310,9 @@ private fun StationBlock(title: String, subtitle: String, selected: Boolean, onC
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(16.dp),
-        color = if (selected) s.ink else Color.Transparent,
-        contentColor = if (selected) s.paper else s.ink,
-        border = if (selected) null else BorderStroke(2.dp, s.ink),
+        color = animateColorAsState(if (selected) s.ink else s.ink.copy(alpha = 0f), Motion.color, label = "block").value,
+        contentColor = animateColorAsState(if (selected) s.paper else s.ink, Motion.color, label = "block text").value,
+        border = BorderStroke(2.dp, s.ink),
         modifier = modifier.height(if (subtitle.isEmpty()) 52.dp else 64.dp),
     ) {
         Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = if (subtitle.isEmpty()) Alignment.CenterHorizontally else Alignment.Start) {
@@ -308,8 +338,10 @@ private fun Hero(board: Board, now: Long, height: Int) {
         else -> Color.White
     }
     val description = PosterRenderer.describe(board, now)
+    // When the next train is on another line, the card eases to its colour rather than snapping.
+    val ground by animateColorAsState(bg, Motion.color, label = "hero ground")
     Box(
-        Modifier.fillMaxWidth().height(height.dp).clip(RoundedCornerShape(28.dp)).background(bg)
+        Modifier.fillMaxWidth().height(height.dp).clip(RoundedCornerShape(28.dp)).background(ground)
             .clearAndSetSemantics { contentDescription = description },
     ) {
         if (phone) Box(Modifier.align(Alignment.CenterStart)) { LineBar(colors, width = 8, height = height) }
@@ -336,19 +368,31 @@ private fun Hero(board: Board, now: Long, height: Int) {
         }
         val minutes = TimeText.minutes(next.atMs, now)
         val big = if (minutes == 0L) "NOW" else minutes.toString()
-        val size = when {
-            minutes == 0L -> 104
-            big.length >= 2 -> 168
-            else -> 230
+        // The minutes roll like a departure board: the old number leaves upward as the new one arrives from below.
+        AnimatedContent(
+            targetState = big,
+            transitionSpec = {
+                (slideInVertically(Motion.move()) { it / 3 } + fadeIn(Motion.enter)) togetherWith
+                    (slideOutVertically(Motion.move()) { -it / 3 } + fadeOut(Motion.exit)) using SizeTransform(clip = false)
+            },
+            contentAlignment = Alignment.BottomEnd,
+            label = "minutes",
+            modifier = Modifier.align(Alignment.BottomEnd),
+        ) { value ->
+            val valueSize = when {
+                value == "NOW" -> 104
+                value.length >= 2 -> 168
+                else -> 230
+            }
+            Text(
+                value,
+                style = Type.giant.copy(fontSize = valueSize.sp, lineHeight = valueSize.sp),
+                color = ink,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.offset(x = 12.dp, y = (valueSize * 0.2f).dp),
+            )
         }
-        Text(
-            big,
-            style = Type.giant.copy(fontSize = size.sp, lineHeight = size.sp),
-            color = ink,
-            maxLines = 1,
-            softWrap = false,
-            modifier = Modifier.align(Alignment.BottomEnd).offset(x = 12.dp, y = (size * 0.2f).dp),
-        )
         Column(Modifier.padding(start = 22.dp, top = 20.dp, end = 22.dp)) {
             Text(board.favorite.station.short.uppercase(), style = Type.label, color = ink)
             val dest = "→ " + next.label.substringBefore(" via ").uppercase()

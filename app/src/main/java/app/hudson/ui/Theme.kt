@@ -1,5 +1,10 @@
 package app.hudson.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
@@ -21,6 +26,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -80,11 +86,36 @@ private fun swissFrom(cs: ColorScheme) = Swiss(
     onHero = cs.onPrimaryContainer,
 )
 
+/**
+ * One set of timings for the whole app, so every change moves the same way: things that travel
+ * use a soft spring, things that appear fade in a touch later than things that leave fade out.
+ */
+object Motion {
+    fun <T> move(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.9f, stiffness = 380f)
+    val enter: FiniteAnimationSpec<Float> = tween(220, delayMillis = 50)
+    val exit: FiniteAnimationSpec<Float> = tween(140)
+    val color: AnimationSpec<Color> = tween(320)
+    val resize: FiniteAnimationSpec<IntSize> = spring(dampingRatio = 0.9f, stiffness = 380f)
+}
+
+/** Eases every colour to its new value, so switching theme (or dark mode) is a fade, not a flash. */
+@Composable
+private fun Swiss.eased(): Swiss {
+    @Composable fun ease(c: Color, label: String) = animateColorAsState(c, Motion.color, label = label).value
+    val heroEased = ease(hero ?: paper, "hero")
+    val onHeroEased = ease(onHero ?: ink, "onHero")
+    return Swiss(
+        paper = ease(paper, "paper"), ink = ease(ink, "ink"), muted = ease(muted, "muted"), rule = ease(rule, "rule"),
+        block = ease(block, "block"), alert = ease(alert, "alert"),
+        hero = if (hero != null) heroEased else null, onHero = if (onHero != null) onHeroEased else null,
+    )
+}
+
 @Composable
 fun HudsonTheme(matchPhone: Boolean = false, content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     val phone = if (matchPhone) LocalContext.current.let { if (dark) dynamicDarkColorScheme(it) else dynamicLightColorScheme(it) } else null
-    val s = phone?.let(::swissFrom) ?: if (dark) Dark else Light
+    val s = (phone?.let(::swissFrom) ?: if (dark) Dark else Light).eased()
     val scheme = if (phone != null) {
         // Ink stays the primary so buttons and selected blocks keep the poster's black-on-paper logic.
         phone.copy(primary = s.ink, onPrimary = s.paper, outline = s.ink, surfaceContainerLow = s.block)

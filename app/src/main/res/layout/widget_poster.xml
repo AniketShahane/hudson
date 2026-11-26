@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The widget. Two pages in a flipper: the station showing, and the next one already drawn, so a
+     tap only has to turn the page, with a short crossfade. Each page is up to five stacked pictures
+     (see PosterRenderer). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_outline"
+    android:clipToOutline="true">
+
+    <ViewFlipper
+        android:id="@+id/flipper"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:animateFirstView="false"
+        android:inAnimation="@anim/widget_in"
+        android:outAnimation="@anim/widget_out">
+        <FrameLayout
+            android:id="@+id/page0"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+            <ImageView
+                android:id="@+id/p0_l0"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+            <ImageView
+                android:id="@+id/p0_l1"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+            <ImageView
+                android:id="@+id/p0_l2"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+            <ImageView
+                android:id="@+id/p0_l3"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+            <ImageView
+                android:id="@+id/p0_l4"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+        </FrameLayout>
+        <FrameLayout
+            android:id="@+id/page1"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+            <ImageView
+                android:id="@+id/p1_l0"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+            <ImageView
+                android:id="@+id/p1_l1"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+            <ImageView
+                android:id="@+id/p1_l2"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+            <ImageView
+                android:id="@+id/p1_l3"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+            <ImageView
+                android:id="@+id/p1_l4"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop" />
+        </FrameLayout>
+    </ViewFlipper>
+
+    <!-- Anywhere: the next station. -->
+    <FrameLayout
+        android:id="@+id/tap"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:foreground="?android:attr/selectableItemBackground" />
+
+    <!-- Over the station name: open the app. Sized when the widget is painted. -->
+    <FrameLayout
+        android:id="@+id/open"
+        android:layout_width="96dp"
+        android:layout_height="48dp"
+        android:layout_gravity="top|start"
+        android:foreground="?android:attr/selectableItemBackground" />
+</FrameLayout>

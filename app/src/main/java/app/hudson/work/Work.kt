@@ -1,7 +1,6 @@
 package app.hudson.work
 
 import android.content.Context
-import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -19,7 +18,6 @@ import app.hudson.domain.RefreshPlan
 import app.hudson.domain.at
 import app.hudson.notify.LiveNotifier
 import app.hudson.widget.MinuteTicker
-import app.hudson.widget.TrainWidget
 import app.hudson.widget.Widgets
 import java.util.concurrent.TimeUnit
 
@@ -91,8 +89,7 @@ object Scheduler {
 
     /** Books a fetch just after the first train on any widget leaves. */
     suspend fun planNext(context: Context) {
-        val ids = GlanceAppWidgetManager(context).getGlanceIds(TrainWidget::class.java)
-        if (ids.isEmpty()) return
+        if (Widgets.ids(context).isEmpty()) return
         val now = System.currentTimeMillis()
         val settings = Graph.settings.current()
         val feed = Graph.feed.cached()
