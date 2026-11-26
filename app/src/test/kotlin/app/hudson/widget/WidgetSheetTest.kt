@@ -134,7 +134,7 @@ class WidgetSheetTest {
         }
     }
 
-    /** The launcher icon as the launcher shows it (squircle and circle, colour and themed), and the lock-screen card's glyphs. */
+    /** The launcher icon as the launcher shows it (squircle and circle, colour and themed), and the status-bar mark. */
     @Test
     fun icons() {
         val context = RuntimeEnvironment.getApplication()
@@ -165,8 +165,8 @@ class WidgetSheetTest {
         listOf(masked(colour, false), masked(colour, true), masked(themed, false), masked(themed, true)).forEachIndexed { i, b ->
             c.drawBitmap(b, android.graphics.Rect(56, 56, 376, 376), RectF(10f + i * cell, 10f, 10f + i * cell + cell - 10f, cell.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG))
         }
-        // The train that rides the card's track, its station, and the status-bar mark.
-        listOf(app.hudson.R.drawable.ic_live_train to 200, app.hudson.R.drawable.ic_live_station to 100, app.hudson.R.drawable.ic_stat_train to 100).fold(20f) { x, (id, w) ->
+        // The status-bar mark.
+        listOf(app.hudson.R.drawable.ic_stat_train to 100).fold(20f) { x, (id, w) ->
             val d = context.getDrawable(id)!!.mutate()
             d.setTint(0xFFD93A30.toInt())
             d.setBounds(x.toInt(), cell + 10, x.toInt() + w, cell + 110)
@@ -175,5 +175,51 @@ class WidgetSheetTest {
         }
         val dir = File("build/outputs/roborazzi").apply { mkdirs() }
         FileOutputStream(File(dir, "icons.png")).use { sheet.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    /**
+     * A mock of the lock-screen card. Android draws the real one and its exact layout cannot be
+     * rendered here; this is this test's own arrangement of the real tile, train and station
+     * pictures over a track of ten dashes, to judge them together. Progress shown: 6 of 10 minutes.
+     */
+    @Test
+    fun liveCardMock() {
+        val context = RuntimeEnvironment.getApplication()
+        val cases = listOf(Triple("WTC", red, false), Triple("JSQ", blueOrange, false), Triple("HOB", green, true))
+        val cardW = 760f
+        val cardH = 300f
+        val sheet = Bitmap.createBitmap((cardW + 40).toInt(), ((cardH + 20) * cases.size + 20).toInt(), Bitmap.Config.ARGB_8888)
+        val c = Canvas(sheet)
+        c.drawColor(0xFF2B2440.toInt())
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        cases.forEachIndexed { n, (code, colors, light) ->
+            val top = 20f + n * (cardH + 20)
+            p.color = if (light) 0xFFF4F3F7.toInt() else 0xFF1E1E22.toInt()
+            c.drawRoundRect(RectF(20f, top, 20f + cardW, top + cardH), 44f, 44f, p)
+            val ink = if (light) 0xFF141414.toInt() else Color.WHITE
+            val card = app.hudson.domain.LiveCard(
+                title = "Exchange Pl → NY", metrics = emptyList(), chipText = null, chipWhenMs = null, summary = "", endsAtMs = 0,
+                approach = app.hudson.domain.Approach(360, 600, colors), tile = code,
+            )
+            p.color = ink; p.textSize = 34f; p.typeface = android.graphics.Typeface.create(android.graphics.Typeface.SANS_SERIF, 700, false)
+            c.drawText("→ $code · 8:46", 50f, top + 70f, p)
+            p.textSize = 28f; p.typeface = android.graphics.Typeface.SANS_SERIF; p.alpha = 190
+            c.drawText("From Exchange Pl · then 8:52, 9:01", 50f, top + 112f, p)
+            p.alpha = 255
+            c.drawBitmap(app.hudson.notify.LiveTile.draw(context, card)!!, null, RectF(cardW - 110f, top + 30f, cardW - 10f, top + 130f), Paint(Paint.FILTER_BITMAP_FLAG))
+            // The track: ten dashes, six travelled, the rest dimmed as the system does.
+            val x0 = 50f; val x1 = cardW - 70f; val y = top + 210f; val gap = 8f
+            val dash = (x1 - x0 - gap * 9) / 10f
+            repeat(10) { i ->
+                p.color = colors[i % colors.size].toInt(); p.alpha = if (i < 6) 255 else 90
+                c.drawRoundRect(RectF(x0 + i * (dash + gap), y - 9f, x0 + i * (dash + gap) + dash, y + 9f), 9f, 9f, p)
+            }
+            p.alpha = 255
+            val tx = x0 + 6 * (dash + gap) - gap / 2f
+            c.drawBitmap(app.hudson.notify.LiveTile.train(context, colors), null, RectF(tx - 60f, y - 30f, tx + 60f, y + 30f), Paint(Paint.FILTER_BITMAP_FLAG))
+            c.drawBitmap(app.hudson.notify.LiveTile.station(context, colors.last()), null, RectF(x1 + 14f, y - 22f, x1 + 58f, y + 22f), Paint(Paint.FILTER_BITMAP_FLAG))
+        }
+        val dir = File("build/outputs/roborazzi").apply { mkdirs() }
+        FileOutputStream(File(dir, "live_card_mock.png")).use { sheet.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 }

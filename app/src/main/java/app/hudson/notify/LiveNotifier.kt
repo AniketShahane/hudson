@@ -21,8 +21,8 @@ import kotlinx.coroutines.launch
 
 /**
  * The commute Live Update. On Android 16+ it asks to be promoted, which on One UI puts it in
- * the Now Bar on the lock screen, and is drawn as a progress card: a train riding a track in its
- * line colour toward the station. The header counts down by itself between refreshes; the text
+ * the Now Bar on the lock screen, and is drawn as a progress card: a train badge riding a track
+ * of ten one-minute dashes in its line colour toward the station. The header counts down by itself between refreshes; the text
  * is clock times only, so nothing on the card goes stale.
  */
 object LiveNotifier {
@@ -87,7 +87,7 @@ object LiveNotifier {
         )
         val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_train)
-            .setContentTitle(card.title)
+            .setContentTitle(card.headline)
             .setContentText(card.detail)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -119,17 +119,19 @@ object LiveNotifier {
         if (rich) LiveTile.draw(context, card)?.let { builder.setLargeIcon(it) }
 
         if (rich && Build.VERSION.SDK_INT >= 36 && approach != null) {
-            // The train rides a track in its own line colour toward the station at the end; a train
-            // on two lines gets a track in both. The system dims the part still ahead.
+            // A track of ten dashes, one a minute, in the train's line colour (alternating for a
+            // train on two lines); the system dims the dashes still ahead, so what is left can be
+            // counted. The train is a solid badge, so the track never shows through or around it.
             val colors = approach.colors.take(2).ifEmpty { listOf(0xFF8A8A8AL) }
             val style = Notification.ProgressStyle()
                 .setStyledByProgress(true)
-                .setProgressTrackerIcon(Icon.createWithResource(context, R.drawable.ic_live_train).setTint(colors.first().toInt()))
-                .setProgressEndIcon(Icon.createWithResource(context, R.drawable.ic_live_station).setTint(colors.last().toInt()))
-            val each = approach.max / colors.size
-            colors.forEachIndexed { i, c ->
-                val length = if (i == colors.lastIndex) approach.max - each * i else each
-                style.addProgressSegment(Notification.ProgressStyle.Segment(length).setColor(c.toInt()))
+                .setProgressTrackerIcon(Icon.createWithBitmap(LiveTile.train(context, colors)))
+                .setProgressEndIcon(Icon.createWithBitmap(LiveTile.station(context, colors.last())))
+            val dashes = LiveTile.DASHES
+            val each = approach.max / dashes
+            repeat(dashes) { i ->
+                val length = if (i == dashes - 1) approach.max - each * i else each
+                style.addProgressSegment(Notification.ProgressStyle.Segment(length).setColor(colors[i % colors.size].toInt()))
             }
             style.setProgress(approach.progress.coerceIn(0, approach.max))
             builder.setStyle(style)

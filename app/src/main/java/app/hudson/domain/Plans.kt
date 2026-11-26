@@ -48,6 +48,8 @@ data class LiveCard(
     val approach: Approach? = null,
     /** A few letters for the card's coloured tile: the destination's station code, "WTC". */
     val tile: String? = null,
+    /** The card's first line: where the next train goes and when, "→ WTC · 8:46". */
+    val headline: String = title,
 )
 
 object LivePlan {
@@ -79,11 +81,12 @@ object LivePlan {
             detail = when {
                 first == null -> summary
                 else -> buildString {
-                    append("Leaves ").append(TimeText.clock(first.atMs))
+                    append("From ").append(board.favorite.station.short)
                     val rest = trains.drop(1)
                     if (rest.isNotEmpty()) append(" · then ").append(rest.joinToString(", ") { TimeText.clock(it.atMs) })
                 }
             },
+            headline = first?.let { "→ ${it.label.substringBefore(" via ")} · ${TimeText.clock(it.atMs)}" } ?: board.favorite.compact,
             approach = first?.let {
                 val left = (it.atMs - nowMs).coerceIn(0, APPROACH_WINDOW_MS)
                 Approach(

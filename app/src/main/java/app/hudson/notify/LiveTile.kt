@@ -45,4 +45,61 @@ object LiveTile {
         c.drawText(text, s / 2f, s * 0.80f, p)
         return bitmap
     }
+
+    /** The track is this many dashes, one a minute (the system draws at most ten). */
+    const val DASHES = 10
+
+    private const val INK = 0xFF141414.toInt()
+
+    /**
+     * The train that rides the track: a solid white capsule with a dark rim and, inside it, a
+     * train in its line colour (nose in the second colour for a train on two lines) with one
+     * headlight. It is opaque edge to edge, so wherever the system places it over the track, the
+     * track is covered cleanly instead of showing through or around a silhouette.
+     */
+    fun train(context: Context, colors: List<Long>): Bitmap {
+        val w = 160f
+        val h = 80f
+        val bitmap = Bitmap.createBitmap(w.toInt(), h.toInt(), Bitmap.Config.ARGB_8888)
+        val c = Canvas(bitmap)
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        fill.color = INK
+        c.drawRoundRect(RectF(0f, 0f, w, h), h / 2f, h / 2f, fill)
+        fill.color = Color.WHITE
+        c.drawRoundRect(RectF(6f, 6f, w - 6f, h - 6f), (h - 12f) / 2f, (h - 12f) / 2f, fill)
+        // The train, side on, nose to the right.
+        val body = Path().apply {
+            moveTo(34f, 24f); lineTo(104f, 24f)
+            cubicTo(122f, 24f, 136f, 38f, 138f, 54f)
+            lineTo(138f, 56f); lineTo(34f, 56f)
+            cubicTo(28f, 56f, 24f, 52f, 24f, 46f); lineTo(24f, 34f)
+            cubicTo(24f, 28f, 28f, 24f, 34f, 24f); close()
+        }
+        fill.color = colors.first().toInt()
+        c.drawPath(body, fill)
+        colors.getOrNull(1)?.let { second ->
+            c.save(); c.clipPath(body); fill.color = second.toInt(); c.drawRect(96f, 0f, w, h, fill); c.restore()
+        }
+        fill.color = Color.WHITE
+        for (x in floatArrayOf(34f, 54f, 74f)) c.drawRoundRect(RectF(x, 31f, x + 14f, 43f), 3f, 3f, fill)
+        c.drawCircle(124f, 48f, 4.5f, fill)
+        fill.color = INK
+        c.drawRect(30f, 56f, 132f, 60f, fill)
+        return bitmap
+    }
+
+    /** Where the track ends: the station, as a solid ring in the line colour. */
+    fun station(context: Context, color: Long): Bitmap {
+        val s = 80f
+        val bitmap = Bitmap.createBitmap(s.toInt(), s.toInt(), Bitmap.Config.ARGB_8888)
+        val c = Canvas(bitmap)
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        fill.color = INK
+        c.drawCircle(s / 2f, s / 2f, s / 2f, fill)
+        fill.color = color.toInt()
+        c.drawCircle(s / 2f, s / 2f, s / 2f - 6f, fill)
+        fill.color = Color.WHITE
+        c.drawCircle(s / 2f, s / 2f, s / 2f - 22f, fill)
+        return bitmap
+    }
 }
