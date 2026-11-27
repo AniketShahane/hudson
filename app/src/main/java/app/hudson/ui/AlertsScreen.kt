@@ -1,6 +1,13 @@
 package app.hudson.ui
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -43,13 +50,18 @@ import app.hudson.domain.TimeText
 internal fun AlertsBlock(alerts: List<Alert>, modifier: Modifier = Modifier) {
     val s = SwissTheme.colors
     var all by rememberSaveable { mutableStateOf(false) }
-    val shown = if (all || alerts.size <= 2) alerts else alerts.take(1)
-    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(s.block).animateContentSize(Motion.resize)) {
-        shown.forEachIndexed { i, alert ->
-            if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
-            AlertRow(alert, flagged = alert.kind == AlertKind.SERVICE)
+    val folds = alerts.size > 2
+    Column(modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(s.block)) {
+        alerts.forEachIndexed { i, alert ->
+            // The first is always there; the rest unfold together. One short movement, nothing chasing it.
+            Unfold(visible = i == 0 || !folds || all) {
+                Column {
+                    if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
+                    AlertRow(alert, flagged = alert.kind == AlertKind.SERVICE)
+                }
+            }
         }
-        if (alerts.size > 2) {
+        if (folds) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
             Box(
                 Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable(onClickLabel = if (all) "Show fewer alerts" else "Show all alerts") { all = !all }.padding(horizontal = 16.dp),
@@ -61,14 +73,28 @@ internal fun AlertsBlock(alerts: List<Alert>, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Opens and closes a piece of content in place: it grows from its top edge while fading in, over
+ * a fifth of a second, and closes a little faster. Used wherever something unfolds, so it always
+ * moves the same way.
+ */
+@Composable
+internal fun Unfold(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(tween(200, easing = FastOutSlowInEasing), expandFrom = Alignment.Top) + fadeIn(tween(140, delayMillis = 60)),
+        exit = shrinkVertically(tween(150, easing = FastOutSlowInEasing), shrinkTowards = Alignment.Top) + fadeOut(tween(90)),
+    ) { content() }
+}
+
 /** An alert as one line, its heading and time; tap to read what it says. [flagged] marks trouble with trains. */
 @Composable
 internal fun AlertRow(alert: Alert, flagged: Boolean = false) {
     val s = SwissTheme.colors
     var open by rememberSaveable(alert.id) { mutableStateOf(false) }
+    val turn by animateFloatAsState(if (open) -90f else 90f, tween(200, easing = FastOutSlowInEasing), label = "chevron")
     Column(
-        Modifier.fillMaxWidth().clickable(onClickLabel = if (open) "Hide details" else "Show details") { open = !open }
-            .animateContentSize(Motion.resize).padding(horizontal = 16.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().clickable(onClickLabel = if (open) "Hide details" else "Show details") { open = !open }.padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (flagged) {
@@ -79,11 +105,10 @@ internal fun AlertRow(alert: Alert, flagged: Boolean = false) {
             Spacer(Modifier.width(10.dp))
             Text(TimeText.clockAmPm(alert.sentAtMs), style = Type.label.copy(fontSize = 10.sp), color = s.muted)
             Spacer(Modifier.width(6.dp))
-            Icon(painterResource(R.drawable.ic_chevron), contentDescription = null, tint = s.muted, modifier = Modifier.size(16.dp).rotate(if (open) -90f else 90f))
+            Icon(painterResource(R.drawable.ic_chevron), contentDescription = null, tint = s.muted, modifier = Modifier.size(16.dp).rotate(turn))
         }
-        if (open && alert.body.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(alert.body, style = Type.body.copy(fontSize = 14.sp, lineHeight = 20.sp), color = s.ink)
+        Unfold(visible = open && alert.body.isNotEmpty()) {
+            Text(alert.body, style = Type.body.copy(fontSize = 14.sp, lineHeight = 20.sp), color = s.ink, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }

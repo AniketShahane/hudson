@@ -263,7 +263,7 @@ internal fun StationRow(station: Station, feed: FeedSnapshot?, now: Long, hasAle
 private fun LineStatus(line: Line, alerts: List<Alert>, modifier: Modifier = Modifier) {
     val s = SwissTheme.colors
     val about = Alerts.on(line, alerts)
-    Column(modifier.animateContentSize(Motion.resize)) {
+    Column(modifier) {
         Row(Modifier.fillMaxWidth().height(52.dp).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(width = 8.dp, height = 30.dp).clip(RoundedCornerShape(2.dp)).background(Color(line.color.toInt())))
             Spacer(Modifier.width(14.dp))

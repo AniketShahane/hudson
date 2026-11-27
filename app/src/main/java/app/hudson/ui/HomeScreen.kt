@@ -10,6 +10,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.slideInHorizontally
@@ -23,11 +25,13 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -68,6 +72,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
@@ -147,11 +152,9 @@ internal fun Home(
             StationSwitcher(favorites, selected, onPick)
             // What PATH is saying about this station, right where its trains are: one line each, tap to read.
             val here = Alerts.at(favorites[selected].station, alerts)
-            Column(Modifier.animateContentSize(Motion.resize)) {
-                if (here.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                    AlertsBlock(here)
-                }
+            if (here.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                AlertsBlock(here)
             }
             Spacer(Modifier.height(16.dp))
             // Switching station slides the whole board the way you moved along the row of stations.
@@ -408,63 +411,108 @@ internal fun SettingsScreen(
 ) {
     val s = SwissTheme.colors
     val context = LocalContext.current
-    var lockHelp by remember { mutableStateOf(false) }
+    var lockHelp by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp)) {
         TopBar("SETTINGS", R.drawable.ic_back, "Back", onBack)
 
-        SectionLabel("MY STATIONS")
+        SectionLabel("FAVORITES")
         Reorderable(settings.favorites, onReorder, onRemove)
         Spacer(Modifier.height(8.dp))
         OutlineBlock("ADD A STATION", R.drawable.ic_add, onAdd)
-        Text("Drag ≡ to reorder. The widget steps through them in this order.", style = Type.body.copy(fontSize = 14.sp), color = s.muted, modifier = Modifier.padding(top = 8.dp, start = 4.dp))
+        Note("Drag ≡ to change the order. The widget steps through them in the same order.")
 
         SectionLabel("COLORS")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StationBlock(title = "LINE COLORS", subtitle = "RED, GREEN, BLUE…", selected = !settings.matchPhone, onClick = { onMatchPhone(false) }, modifier = Modifier.weight(1f))
             StationBlock(title = "MATCH MY PHONE", subtitle = "FROM YOUR WALLPAPER", selected = settings.matchPhone, onClick = { onMatchPhone(true) }, modifier = Modifier.weight(1f))
         }
+        Note("Applies to the app and the widget.")
 
-        SectionLabel("LOCK SCREEN TRACKING LASTS")
+        SectionLabel("LOCK SCREEN TRACKING")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(15, 30, 45, 60).forEach { m ->
                 StationBlock(title = "$m MIN", subtitle = "", selected = settings.liveMinutes == m, onClick = { onMinutes(m) }, modifier = Modifier.weight(1f))
             }
         }
+        Note("How long a train stays on your lock screen after you tap Track.")
         if (Build.VERSION.SDK_INT >= 36 && !LiveNotifier.canPromote(context)) {
-            Spacer(Modifier.height(8.dp))
-            LinkRow("Allow tracking on the lock screen") {
-                LiveNotifier.openPromotionSettings(context)
+            Spacer(Modifier.height(10.dp))
+            Group {
+                SettingRow("Allow on the lock screen", "Off in Android's settings: tracking shows only in notifications") { LiveNotifier.openPromotionSettings(context) }
             }
         }
 
         SectionLabel("WIDGET")
-        LinkRow("Add to home screen") {
-            val manager = AppWidgetManager.getInstance(context)
-            if (manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(ComponentName(context, TrainWidgetReceiver::class.java), null, null)
-        }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
-        Column(Modifier.animateContentSize()) {
-            LinkRow("Put it on the lock screen") { lockHelp = !lockHelp }
-            if (lockHelp) {
+        Group {
+            SettingRow("Add to home screen", "A poster of your next train, in any size") {
+                val manager = AppWidgetManager.getInstance(context)
+                if (manager.isRequestPinAppWidgetSupported) manager.requestPinAppWidget(ComponentName(context, TrainWidgetReceiver::class.java), null, null)
+            }
+            Hairline()
+            SettingRow("Put it on the lock screen", "Samsung phones, with Good Lock", open = lockHelp) { lockHelp = !lockHelp }
+            Unfold(visible = lockHelp) {
                 Text(
                     "1. Install Good Lock from the Galaxy Store.\n2. In Good Lock, add LockStar.\n3. Open LockStar, edit your lock screen, tap Add widget, pick PATH trains.",
-                    style = Type.body,
+                    style = Type.body.copy(fontSize = 15.sp, lineHeight = 22.sp),
                     color = s.ink,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                 )
             }
         }
+
         SectionLabel("ABOUT")
+        Group {
+            Text(
+                "Hudson is an independent app. It is not made by, affiliated with or endorsed by the Port Authority of New York and New Jersey.",
+                style = Type.body.copy(fontSize = 15.sp, lineHeight = 21.sp), color = s.ink, modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp),
+            )
+            Text(
+                "Train times and alerts are PATH's own, read from its public feeds at panynj.gov. They can be wrong or late; check station signs before you travel.",
+                style = Type.body.copy(fontSize = 14.sp, lineHeight = 20.sp), color = s.muted, modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 16.dp),
+            )
+            Hairline()
+            SettingRow("PATH's official site", "panynj.gov") { openLink(context, "https://www.panynj.gov/path/en/index.html") }
+            Hairline()
+            SettingRow("Privacy policy", "Nothing is collected") { openLink(context, PRIVACY_URL) }
+        }
         Text(
-            "Hudson is an independent app. It is not made by, affiliated with or endorsed by the Port Authority of New York and New Jersey. " +
-                "Train times and alerts are PATH's own, read from its public feeds at panynj.gov, and can be wrong or late; check station signs before you travel.",
-            style = Type.body.copy(fontSize = 14.sp, lineHeight = 20.sp), color = s.ink, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+            "HUDSON ${appVersion(context)}", style = Type.label.copy(fontSize = 11.sp), color = s.muted, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 24.dp),
         )
-        LinkRow("PATH's official site") { openLink(context, "https://www.panynj.gov/path/en/index.html") }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
-        LinkRow("Privacy policy") { openLink(context, PRIVACY_URL) }
-        Text("VERSION ${appVersion(context)}", style = Type.label.copy(fontSize = 11.sp), color = s.muted, modifier = Modifier.padding(start = 4.dp, top = 12.dp))
-        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** A small line of explanation under a control. */
+@Composable
+private fun Note(text: String) {
+    Text(text, style = Type.body.copy(fontSize = 13.sp, lineHeight = 18.sp), color = SwissTheme.colors.muted, modifier = Modifier.padding(start = 4.dp, top = 8.dp, end = 4.dp))
+}
+
+/** Rows that belong together, on one card. */
+@Composable
+private fun Group(content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(SwissTheme.colors.block), content = content)
+}
+
+@Composable
+private fun Hairline() {
+    Box(Modifier.fillMaxWidth().padding(start = 16.dp).height(1.dp).background(SwissTheme.colors.rule))
+}
+
+/** A row that goes somewhere or opens something: what it is, a quieter line saying more, and an arrow. */
+@Composable
+private fun SettingRow(title: String, note: String, open: Boolean? = null, onClick: () -> Unit) {
+    val s = SwissTheme.colors
+    val turn by animateFloatAsState(if (open == null) 0f else if (open) -90f else 90f, tween(200), label = "row arrow")
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 68.dp).padding(horizontal = 16.dp, vertical = 12.dp).semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = Type.bodyBold.copy(fontSize = 16.sp), color = s.ink)
+            Text(note, style = Type.body.copy(fontSize = 13.sp, lineHeight = 18.sp), color = s.muted)
+        }
+        Icon(painterResource(R.drawable.ic_chevron), contentDescription = null, tint = s.muted, modifier = Modifier.padding(start = 10.dp).size(18.dp).rotate(turn))
     }
 }
 
