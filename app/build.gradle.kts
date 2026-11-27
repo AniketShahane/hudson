@@ -42,8 +42,8 @@ android {
         // Dynamic colour in widgets needs Android 12; the phone runs Android 17.
         minSdk = 31
         targetSdk = 36
-        versionCode = 20
-        versionName = "2.0.0"
+        versionCode = 21
+        versionName = "2.0.1"
     }
 
     signingConfigs {

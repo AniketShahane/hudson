@@ -20,6 +20,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -110,9 +111,8 @@ private val navKeys = SavedStateConfiguration {
 @Serializable data object AddKey : NavKey
 
 enum class Tab(val label: String, val icon: Int) {
-    TRAINS("MY TRAINS", R.drawable.ic_stat_train),
+    TRAINS("FAVORITES", R.drawable.ic_stat_train),
     STATIONS("STATIONS", R.drawable.ic_tab_stations),
-    ALERTS("ALERTS", R.drawable.ic_tab_alerts),
 }
 
 /** While the app is open: trains every half minute, alerts every few. Nothing here runs in the background. */
@@ -120,7 +120,7 @@ private const val TRAINS_EVERY_MS = 30_000L
 private const val ALERTS_EVERY_MS = 3 * 60_000L
 
 /**
- * The whole app. My trains, Stations and Alerts sit behind a bottom bar; a station's board,
+ * The whole app. Favorites and Stations sit behind a bottom bar; a station's board,
  * Settings and adding a favorite slide over them, and the back gesture peels them away under
  * your thumb.
  */
@@ -135,7 +135,6 @@ fun HudsonRoot(askNotificationsOnStart: Boolean = false) {
     var tabName by rememberSaveable { mutableStateOf(Tab.TRAINS.name) }
     val tab = Tab.valueOf(tabName)
 
-    var alertsUnreachable by remember { mutableStateOf(false) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(Unit) {
         Graph.feed.cached()
@@ -148,7 +147,7 @@ fun HudsonRoot(askNotificationsOnStart: Boolean = false) {
                 }
             }
             while (true) {
-                alertsUnreachable = Graph.alerts.refresh(maxAgeMs = 60_000).isFailure
+                Graph.alerts.refresh(maxAgeMs = 60_000)
                 delay(ALERTS_EVERY_MS)
             }
         }
@@ -160,7 +159,6 @@ fun HudsonRoot(askNotificationsOnStart: Boolean = false) {
         }
     }
     val current = remember(alertsSnapshot) { Alerts.current(alertsSnapshot) }
-    val earlier = remember(alertsSnapshot) { Alerts.earlier(alertsSnapshot) }
 
     fun notificationsAllowed() =
         ContextCompat.checkSelfPermission(context, MainActivity.NOTIFICATION_PERMISSION) == PackageManager.PERMISSION_GRANTED
@@ -187,17 +185,40 @@ fun HudsonRoot(askNotificationsOnStart: Boolean = false) {
         Widgets.repaintAll(context)
     }
 
-    // Nearest station: asked for only when the Stations tab is first opened with the permission granted.
-    var here by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    // Stations near you. Only looked for on the Stations tab, and only once location has been allowed.
+    var near by remember { mutableStateOf<Locator.Result?>(null) }
     var locating by remember { mutableStateOf(false) }
+    var refused by rememberSaveable { mutableStateOf(false) }
     fun locate() = scope.launch {
         if (locating) return@launch
         locating = true
-        here = Locator.approximate(context) ?: here
+        // Show what the phone already knows at once, then replace it if a fresher fix arrives.
+        if (near !is Locator.Result.Found) Locator.lastKnown(context)?.let { near = Locator.Result.Found(it) }
+        near = Locator.locate(context)
         locating = false
     }
-    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) locate() }
-    LaunchedEffect(tab) { if (tab == Tab.STATIONS && here == null && Locator.allowed(context)) locate() }
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted.values.any { it }) locate()
+        else {
+            refused = true
+            near = Locator.Result.NotAllowed
+        }
+    }
+    // The one button does whatever is needed next: ask, send to the right settings page, or look again.
+    val onNear: () -> Unit = {
+        when {
+            !Locator.allowed(context) && refused -> openAppSettings(context)
+            !Locator.allowed(context) -> locationPermission.launch(Locator.PERMISSIONS)
+            !Locator.switchedOn(context) -> openLocationSettings(context)
+            else -> locate()
+        }
+    }
+    // Coming to the Stations tab, or back to the app from Settings, with location allowed: look (again).
+    LaunchedEffect(tab) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            if (tab == Tab.STATIONS && Locator.allowed(context)) locate()
+        }
+    }
 
     val s = SwissTheme.colors
     Box(Modifier.fillMaxSize().background(s.paper)) {
@@ -231,23 +252,16 @@ fun HudsonRoot(askNotificationsOnStart: Boolean = false) {
                                         liveResult = liveResult,
                                         onSettings = { backStack.add(SettingsKey) },
                                         alerts = current,
-                                        onAlerts = { tabName = Tab.ALERTS.name },
                                     )
                                     Tab.STATIONS -> StationsScreen(
                                         feed = feed, now = now, alerts = current,
-                                        here = here, locating = locating,
-                                        onFindNearest = { if (Locator.allowed(context)) locate() else locationPermission.launch(Locator.PERMISSION) },
+                                        near = near, locating = locating, onNear = onNear,
                                         onStation = { backStack.add(StationKey(it.code)) },
-                                    )
-                                    Tab.ALERTS -> AlertsScreen(
-                                        current = current, earlier = earlier, fetchedAtMs = alertsSnapshot?.fetchedAtMs,
-                                        unreachable = alertsUnreachable,
-                                        onRefresh = { alertsUnreachable = Graph.alerts.refresh().isFailure },
                                     )
                                 }
                             }
                         }
-                        BottomBar(tab, alertCount = current.size, onTab = { tabName = it.name })
+                        BottomBar(tab, onTab = { tabName = it.name })
                     }
                 }
                 entry<StationKey> { key ->
@@ -298,9 +312,9 @@ private fun pop(): ContentTransform =
     (slideInHorizontally(Motion.move()) { -it / 8 } + fadeIn(Motion.enter)) togetherWith
         (slideOutHorizontally(Motion.move()) { it / 5 } + fadeOut(Motion.exit) + scaleOut(tween(220), targetScale = 0.96f))
 
-/** Three places, one tap each. The marker slides to the one you are in. */
+/** Two places, one tap each. The marker slides to the one you are in. */
 @Composable
-private fun BottomBar(tab: Tab, alertCount: Int, onTab: (Tab) -> Unit) {
+private fun BottomBar(tab: Tab, onTab: (Tab) -> Unit) {
     val s = SwissTheme.colors
     Column(Modifier.fillMaxWidth().background(s.paper)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
@@ -312,31 +326,34 @@ private fun BottomBar(tab: Tab, alertCount: Int, onTab: (Tab) -> Unit) {
                 Tab.entries.forEach { item ->
                     val selected = item == tab
                     val tint by animateColorAsState(if (selected) s.paper else s.muted, Motion.color, label = "tab tint")
-                    Box(
+                    Row(
                         Modifier.weight(1f).fillMaxHeight()
                             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onTab(item) }
                             .semantics {
                                 role = Role.Tab
                                 this.selected = selected
-                                contentDescription = if (item == Tab.ALERTS && alertCount > 0) "Alerts, $alertCount now" else item.label.lowercase().replaceFirstChar { it.uppercase() }
+                                contentDescription = item.label.lowercase().replaceFirstChar { it.uppercase() }
                             },
-                        contentAlignment = Alignment.Center,
+                        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box {
-                                Icon(painterResource(item.icon), contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = item == Tab.ALERTS && alertCount > 0,
-                                    enter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 500f)) + fadeIn(),
-                                    exit = scaleOut() + fadeOut(),
-                                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-3).dp),
-                                ) { Box(Modifier.size(9.dp).clip(CircleShape).background(s.alert)) }
-                            }
-                            Text(item.label, style = Type.label.copy(fontSize = 10.sp), color = tint, modifier = Modifier.padding(top = 3.dp))
-                        }
+                        Icon(painterResource(item.icon), contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+                        Text(item.label, style = Type.label.copy(fontSize = 12.sp), color = tint, modifier = Modifier.padding(start = 10.dp))
                     }
                 }
             }
         }
     }
+}
+
+internal fun openAppSettings(context: android.content.Context) {
+    runCatching {
+        context.startActivity(
+            android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", context.packageName, null))
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+}
+
+internal fun openLocationSettings(context: android.content.Context) {
+    runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }

@@ -3,10 +3,12 @@
 An Android app and home-screen widget for PATH departures and alerts. Independent: not made by,
 affiliated with or endorsed by the Port Authority of New York and New Jersey.
 
-- **My trains**: your saved stations, the next train as one giant number.
+- **Favorites**: your saved stations, the next train as one giant number.
 - **Stations**: all 13 stations as a list (next train each way) or on a live line map; optional
-  "nearest station" from one approximate location fix.
-- **Alerts**: PATH's own alert feed, current and ended, with the lines and stations each one touches.
+  "stations near you", which lists every station that could be the closest given how sure the
+  phone is of its position, and says plainly when location is off, refused or unavailable.
+- **Alerts**: PATH's own alert feed, shown on the stations and lines each alert touches rather
+  than on a screen of its own.
 - **Widget** and **lock-screen tracking**, as below.
 
 Data: `ridepath.json` (arrivals) and `alerts?agency=PATH&hours=24` (alerts) on www.panynj.gov.

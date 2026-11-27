@@ -325,8 +325,11 @@ class AlertsTest {
 
     @Test fun alertsAtAStation() {
         val now = app.hudson.domain.Alerts.current(snapshot)
-        assertEquals(1, app.hudson.domain.Alerts.at(Station.HOBOKEN, now).size)
-        assertEquals(0, app.hudson.domain.Alerts.at(Station.THIRTY_THIRD, now).size)
+        // Hoboken: its own lift shutdown first, then the storm advisory that applies everywhere.
+        assertEquals(listOf(app.hudson.domain.AlertKind.ELEVATOR, app.hudson.domain.AlertKind.WEATHER), app.hudson.domain.Alerts.at(Station.HOBOKEN, now).map { it.kind })
+        // 33rd Street: only the advisory.
+        assertEquals(listOf(app.hudson.domain.AlertKind.WEATHER), app.hudson.domain.Alerts.at(Station.THIRTY_THIRD, now).map { it.kind })
+        assertTrue(!app.hudson.domain.Alerts.disrupts(app.hudson.domain.Alerts.at(Station.HOBOKEN, now)))
         assertEquals(emptyList(), app.hudson.domain.Alerts.current(null))
     }
 
@@ -337,6 +340,17 @@ class AlertsTest {
         // On Church Street by the Oculus: World Trade Center, not Exchange Place across the river.
         assertEquals(Station.WTC, app.hudson.core.Geo.nearest(40.7115, -74.0105)!!.first)
         assertNull(app.hudson.core.Geo.nearest(34.05, -118.24), "Los Angeles is not near PATH")
+        // A sharp fix outside Exchange Place: that station, and not Grove Street 900 m away.
+        assertEquals(listOf(Station.EXCHANGE_PLACE), app.hudson.core.Geo.near(40.7170, -74.0335, accuracyMetres = 20.0).map { it.first })
+        // The same spot known only to within 2 km: the three closest are offered, closest first.
+        val rough = app.hudson.core.Geo.near(40.7170, -74.0335, accuracyMetres = 2_000.0)
+        assertEquals(3, rough.size)
+        assertEquals(Station.EXCHANGE_PLACE, rough.first().first)
+        assertTrue(rough.zipWithNext().all { (a, b) -> a.second <= b.second })
+        // By 9th Street on 6th Avenue, known to 150 m: 14th Street, 350 m up the avenue, cannot be ruled out, so both are offered.
+        val sixth = app.hudson.core.Geo.near(40.7350, -73.9987, accuracyMetres = 150.0).map { it.first }
+        assertEquals(listOf(Station.NINTH, Station.FOURTEENTH), sixth)
+        assertEquals(emptyList(), app.hudson.core.Geo.near(34.05, -118.24, 20.0))
         assertEquals("350 m", app.hudson.core.Geo.distance(340.0))
         assertEquals("1.2 km", app.hudson.core.Geo.distance(1234.0))
         assertEquals(Station.entries.toSet(), app.hudson.core.Line.entries.flatMap { it.stations }.toSet())

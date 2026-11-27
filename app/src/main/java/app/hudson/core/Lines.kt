@@ -60,6 +60,21 @@ object Geo {
     fun nearest(lat: Double, lon: Double, withinMetres: Double = 40_000.0): Pair<Station, Double>? =
         Station.entries.map { it to metres(lat, lon, it) }.minByOrNull { it.second }?.takeIf { it.second <= withinMetres }
 
+    /**
+     * The stations worth offering as "near you", closest first. A phone's idea of where it is can
+     * be off by a couple of kilometres (an approximate fix is deliberately blurred), and PATH's
+     * Manhattan stations are only 400 m apart, so naming one station would often be wrong. Every
+     * station that could be the nearest, given [accuracyMetres], is offered, up to [most]; with a
+     * sharp fix that is usually one or two.
+     */
+    fun near(lat: Double, lon: Double, accuracyMetres: Double, most: Int = 3, withinMetres: Double = 40_000.0): List<Pair<Station, Double>> {
+        val all = Station.entries.map { it to metres(lat, lon, it) }.sortedBy { it.second }
+        val closest = all.firstOrNull()?.takeIf { it.second <= withinMetres } ?: return emptyList()
+        // Two stations cannot be told apart if the gap between their distances is within twice the error.
+        val slack = 2 * accuracyMetres.coerceIn(0.0, 3_000.0)
+        return all.filter { it.second <= closest.second + slack }.take(most.coerceAtLeast(1))
+    }
+
     /** "350 m", "1.2 km": rounded so an approximate fix does not read as a precise one. */
     fun distance(metres: Double): String = when {
         metres < 950 -> "${(Math.round(metres / 50.0) * 50).coerceAtLeast(50)} m"

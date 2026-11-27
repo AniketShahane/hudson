@@ -94,14 +94,20 @@ object Alerts {
         .take(limit)
         .map(::of)
 
-    /** The alerts that matter at [station]: ones that name it or a line through it, and anything about trains with no place given. */
+    /**
+     * The alerts to show at [station]: first the ones that name it or a line through it, then
+     * anything PATH sent without naming a place (a storm advisory, a system-wide notice), which
+     * applies everywhere. There is no separate alerts screen: this is where alerts are read.
+     */
     fun at(station: Station, alerts: List<Alert>): List<Alert> {
         val through = Line.serving(station)
-        return alerts.filter { a ->
-            station in a.stations || a.lines.any { it in through } ||
-                (a.kind == AlertKind.SERVICE && a.stations.isEmpty() && a.lines.isEmpty())
-        }
+        val here = alerts.filter { a -> station in a.stations || a.lines.any { it in through } }
+        val everywhere = alerts.filter { it.stations.isEmpty() && it.lines.isEmpty() }
+        return here + everywhere
     }
+
+    /** The alerts about [line] itself. */
+    fun on(line: Line, alerts: List<Alert>): List<Alert> = alerts.filter { line in it.lines }
 
     /** Whether trains themselves are affected, as opposed to a lift or the weather. */
     fun disrupts(alerts: List<Alert>): Boolean = alerts.any { it.kind == AlertKind.SERVICE }

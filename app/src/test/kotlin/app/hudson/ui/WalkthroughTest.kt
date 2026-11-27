@@ -25,6 +25,7 @@ import app.hudson.domain.LivePlan
 import app.hudson.notify.LiveNotifier
 import com.github.takahirom.roborazzi.captureScreenRoboImage
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.Rule
@@ -166,6 +167,12 @@ class WalkthroughTest {
         }
     }
 
+    /** Everything on screen that is read out by a description rather than its text (station rows are). */
+    private fun described(): List<String> = rule.onAllNodes(isRoot()).fetchSemanticsNodes().flatMap { root ->
+        fun all(n: SemanticsNode): List<SemanticsNode> = listOf(n) + n.children.flatMap(::all)
+        all(root).flatMap { it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
+    }
+
     private fun tapDescribed(description: String) {
         rule.onNode(SemanticsMatcher("described \"$description\"") { node ->
             node.config.getOrNull(SemanticsProperties.ContentDescription)?.any { it.startsWith(description) } == true
@@ -179,124 +186,169 @@ class WalkthroughTest {
         val context = RuntimeEnvironment.getApplication()
         shadowOf(context).grantPermissions(MainActivity.NOTIFICATION_PERMISSION)
 
-        step("01_my_trains") {
+        step("01_favorites") {
             waitFor("TRACK ON LOCK SCREEN")
             waitFor("THEN")
             waitFor("Signal Problem")
             settle(1500)
-            shot("01_my_trains")
+            shot("01_favorites")
+            assertTrue("the favorites row has its heading", exists("FAVORITES"))
         }
-        step("02_second_station") {
+        step("02_alerts_in_place") {
+            // Exchange Place has three alerts: the delay on its line, its lift, and the storm advisory. One shows; the rest are a tap away.
+            tap("2 MORE")
+            settle(900)
+            assertTrue(exists("Hoboken and Exchange Place Elevators") && exists("PATH Inclement Weather Advisory"))
+            tap("Signal Problem")
+            settle(900)
+            assertTrue("an alert opens to its full text", exists("Crews are working on a signal problem"))
+            shot("02_favorites_alerts_open")
+            tap("SHOW FEWER")
+            settle(600)
+        }
+        step("03_second_favorite_and_tracking") {
             rule.onAllNodesWithText("TO NEW JERSEY").onFirst().performSemanticsAction(SemanticsActions.OnClick)
             settle(1500)
-            shot("02_my_trains_wtc")
-        }
-        step("03_tracking") {
+            shot("03_favorites_wtc")
             tap("TRACK ON LOCK SCREEN")
             waitFor("UNTIL")
             settle(800)
-            shot("03_tracking")
+            shot("04_tracking")
             tap("STOP")
             waitFor("TRACK ON LOCK SCREEN")
         }
-        step("04_stations_list") {
+        step("05_stations_list") {
             tapDescribed("Stations")
             waitFor("NEW JERSEY")
             settle(1500)
-            shot("04_stations_list")
+            shot("05_stations_list")
+            assertTrue("with location not yet allowed, it is offered, not assumed", exists("FIND STATIONS NEAR ME"))
             val described = rule.onAllNodes(isRoot()).fetchSemanticsNodes().flatMap { root ->
                 fun all(n: SemanticsNode): List<SemanticsNode> = listOf(n) + n.children.flatMap(::all)
                 all(root).flatMap { it.config.getOrNull(SemanticsProperties.ContentDescription).orEmpty() }
             }
             assertTrue("every station is listed", app.hudson.core.Station.entries.all { st -> described.any { it.startsWith(st.title) } })
         }
-        step("05_stations_map") {
+        step("06_near_you") {
+            val manager = context.getSystemService(android.location.LocationManager::class.java)
+            val shadow = shadowOf(manager)
+            // Allowed (approximate only), but location is switched off for the phone: say so, with the fix.
+            shadowOf(context).grantPermissions(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+            shadow.setLocationEnabled(false)
+            tapDescribed("Favorites")
+            waitFor("TRACK ON LOCK SCREEN")
+            tapDescribed("Stations")
+            waitFor("Location is switched off on this phone.")
+            settle(800)
+            shot("06_near_location_off")
+            // Switched on, with a position outside Exchange Place. Approximate permission: several candidates, marked approximate.
+            shadow.setLocationEnabled(true)
+            shadow.setProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER, true)
+            fun at(lat: Double, lon: Double, accuracy: Float) = android.location.Location(android.location.LocationManager.NETWORK_PROVIDER).apply {
+                latitude = lat; longitude = lon; this.accuracy = accuracy
+                time = System.currentTimeMillis(); elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos()
+            }
+            shadow.setLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER, at(40.7170, -74.0335, 30f))
+            tap("TURN ON LOCATION")
+            waitFor("NEAR YOU · APPROXIMATE")
+            settle(1200)
+            shot("07_near_approximate")
+            assertEquals("an approximate fix offers the three stations it could be", 3, described().count { ", about " in it })
+            // Precise permission: the same position now pins down one station.
+            shadowOf(context).grantPermissions(android.Manifest.permission.ACCESS_FINE_LOCATION)
+            tapDescribed("Favorites")
+            waitFor("TRACK ON LOCK SCREEN")
+            tapDescribed("Stations")
+            waitFor("NEAR YOU")
+            settle(1200)
+            shot("08_near_precise")
+            assertTrue(!exists("APPROXIMATE"))
+            assertEquals("a precise fix names the one station", listOf("Exchange Place"), described().filter { ", about " in it }.map { it.substringBefore(",") })
+        }
+        step("09_stations_map") {
             tapDescribed("MAP view")
             waitFor("MINUTES TO THE NEXT TRAIN")
             settle(2200)
-            shot("05_stations_map")
+            shot("09_stations_map")
+            assertTrue("the delayed line says so, with its alert under it", exists("1 ALERT") && exists("Signal Problem"))
             tapDescribed("Journal Square")
             waitFor("TO NEW YORK")
             settle(1200)
-            shot("06_station_from_map")
+            shot("10_station_from_map")
             back()
             waitFor("MINUTES TO THE NEXT TRAIN")
             tapDescribed("LIST view")
             waitFor("NEW JERSEY")
         }
-        step("07_station_board") {
+        step("11_station_board") {
             tapDescribed("Hoboken")
             waitFor("TO NEW JERSEY")
             settle(1500)
-            shot("07_station_hoboken")
+            shot("11_station_hoboken")
             assertTrue("the lift alert that names Hoboken shows on its board", exists("Elevators Severe Storm Shutdown"))
             // Android may put the app away and rebuild it at any moment: you must come back to the same page.
             rule.activityRule.scenario.recreate()
             settle(1500)
             waitFor("TO NEW JERSEY")
             assertTrue("still on Hoboken's board after the app is rebuilt", exists("HOBOKEN"))
-            // Saving it from here puts it in My trains.
-            rule.onAllNodesWithText("MY TRAINS").onFirst().performSemanticsAction(SemanticsActions.OnClick)
+            // Saving it from here makes it a favorite.
+            rule.onAllNodesWithText("ADD TO FAVORITES").onFirst().performSemanticsAction(SemanticsActions.OnClick)
             settle(800)
-            waitFor("IN MY TRAINS")
-            shot("08_station_saved")
+            waitFor("IN FAVORITES")
+            shot("12_station_saved")
             assertTrue(runBlocking { Graph.settings.current().favorites.any { it.stationCode == "HOB" } })
             back()
             waitFor("NEW JERSEY")
         }
-        step("09_alerts") {
-            tapDescribed("Alerts")
-            waitFor("EARLIER")
-            settle(1500)
-            shot("09_alerts")
-            assertTrue(exists("Signal Problem") && exists("PATH Inclement Weather Advisory"))
-            scrollTo("Track Condition")
-            tap("Track Condition")
-            settle(900)
-            assertTrue("an ended alert opens to show what it said", exists("resuming normal service"))
-            shot("10_alerts_earlier_open")
-        }
-        step("11_settings") {
-            tapDescribed("My trains")
+        step("13_settings") {
+            tapDescribed("Favorites")
             waitFor("TRACK ON LOCK SCREEN")
             settle(1000)
-            shot("11_my_trains_three")
             rule.onNodeWithContentDescription("Settings").performSemanticsAction(SemanticsActions.OnClick)
             settle(1200)
             waitFor("MY STATIONS")
-            shot("12_settings")
-        }
-        step("13_add") {
+            shot("13_settings")
             tap("ADD A STATION")
             waitFor("1 · LEAVING FROM")
-            shot("13_add_empty")
+            shot("14_add_empty")
             tap("GROVE ST")
             waitFor("SAVE GROVE ST")
-            shot("14_add_grove")
+            shot("15_add_grove")
             rule.onNodeWithText("SAVE GROVE ST", substring = true).performSemanticsAction(SemanticsActions.OnClick)
             settle(1500)
             waitFor("MY STATIONS")
         }
-        step("15_phone_colors_and_about") {
+        step("16_phone_colors_and_about") {
             tap("MATCH MY PHONE")
             settle(800)
             assertTrue("the choice is saved", runBlocking { Graph.settings.current().matchPhone })
             scrollTo("ABOUT")
             settle(600)
-            shot("15_settings_about_phone_colors")
+            shot("16_settings_about_phone_colors")
             assertTrue(exists("not made by, affiliated with or endorsed by"))
             back()
             settle(1200)
             waitFor("TRACK ON LOCK SCREEN")
-            shot("16_my_trains_phone_colors")
+        }
+        step("17_fourth_favorite_comes_into_view") {
+            // Four favorites no longer fit across the screen. Picking the last one must bring all of it into view.
+            val width = rule.onAllNodes(isRoot()).fetchSemanticsNodes().first().size.width
+            // Where the chip really is, not just the part of it that is showing.
+            fun edges() = rule.onAllNodesWithText("GROVE ST").onFirst().fetchSemanticsNode().let { it.positionInRoot.x to it.positionInRoot.x + it.size.width }
+            assertTrue("it starts partly or wholly off the edge: ${edges()} of $width", edges().second > width)
+            rule.onAllNodesWithText("GROVE ST").onFirst().performSemanticsAction(SemanticsActions.OnClick)
+            settle(1500)
+            val (left, right) = edges()
+            assertTrue("after picking it, the whole chip is on screen: $left..$right of $width", left >= 0f && right <= width)
+            shot("17_favorites_four_phone_colors")
             tapDescribed("Stations")
             waitFor("NEW JERSEY")
             settle(1200)
-            shot("17_stations_phone_colors")
-            tapDescribed("My trains")
+            shot("18_stations_phone_colors")
+            tapDescribed("Favorites")
             waitFor("TRACK ON LOCK SCREEN")
         }
-        step("18_live_notification") {
+        step("19_live_notification") {
             val card = runBlocking {
                 val feed = Graph.feed.cached()
                 val now = System.currentTimeMillis()
@@ -319,8 +371,8 @@ class WalkthroughTest {
     }
 
     /**
-     * The five screens for the Google Play listing, on a small 9:16 phone (1440 x 2560): also the
-     * check that nothing is cramped or cut off at the narrowest common width.
+     * The screens for the Google Play listing, on a small 9:16 phone (1440 x 2560): also the check
+     * that nothing is cramped or cut off at the narrowest common width.
      */
     @Test
     @Config(sdk = [36], qualifiers = "w360dp-h640dp-port-night-xxxhdpi", application = TestHudsonApp::class)
@@ -330,7 +382,7 @@ class WalkthroughTest {
             waitFor("TRACK ON LOCK SCREEN")
             waitFor("Signal Problem")
             settle(1500)
-            shot("phone_1_my_trains", "store")
+            shot("phone_1_favorites", "store")
             tapDescribed("Stations")
             waitFor("NEW JERSEY")
             settle(1500)
@@ -343,12 +395,6 @@ class WalkthroughTest {
             waitFor("TO NEW YORK")
             settle(1500)
             shot("phone_4_station", "store")
-            back()
-            waitFor("MINUTES TO THE NEXT TRAIN")
-            tapDescribed("Alerts")
-            waitFor("EARLIER")
-            settle(1500)
-            shot("phone_5_alerts", "store")
         }
         if (failures.isNotEmpty()) throw AssertionError("Store screenshots failed:\n" + failures.joinToString("\n"))
     }
@@ -362,7 +408,7 @@ class WalkthroughTest {
             waitFor("TRACK ON LOCK SCREEN")
             waitFor("Signal Problem")
             settle(1500)
-            shot("light_1_my_trains")
+            shot("light_1_favorites")
             tapDescribed("Stations")
             waitFor("NEW JERSEY")
             settle(1500)
@@ -371,10 +417,10 @@ class WalkthroughTest {
             waitFor("MINUTES TO THE NEXT TRAIN")
             settle(2200)
             shot("light_3_map")
-            tapDescribed("Alerts")
-            waitFor("EARLIER")
+            tapDescribed("Exchange Place")
+            waitFor("TO NEW YORK")
             settle(1500)
-            shot("light_4_alerts")
+            shot("light_4_station")
         }
         if (failures.isNotEmpty()) throw AssertionError("Light mode failed:\n" + failures.joinToString("\n"))
     }

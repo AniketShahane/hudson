@@ -5,8 +5,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Approximate only, and only to offer the nearest station while the Stations screen is open. -->
+    <!-- Only to offer the stations near you, only when asked, only while the Stations screen is open.
+         Both are requested so the person can choose precise or approximate; approximate is enough. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- Lets the commute card be promoted to a Live Update (Now Bar on One UI). Not a runtime permission. -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
 

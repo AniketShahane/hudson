@@ -31,6 +31,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -123,7 +125,7 @@ private val NightInk = Color(0xFF141414)
 @Composable
 internal fun Home(
     settings: Settings, feed: FeedSnapshot?, now: Long, onPick: (Int) -> Unit, onTrack: () -> Unit, onStop: () -> Unit,
-    liveResult: LiveNotifier.Result?, onSettings: () -> Unit, alerts: List<Alert> = emptyList(), onAlerts: () -> Unit = {},
+    liveResult: LiveNotifier.Result?, onSettings: () -> Unit, alerts: List<Alert> = emptyList(),
 ) {
     val s = SwissTheme.colors
     val favorites = settings.favorites.ifEmpty { Favorite.defaults }
@@ -141,13 +143,14 @@ internal fun Home(
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Spacer(Modifier.height(12.dp))
+            if (favorites.size > 1) Text("FAVORITES", style = Type.label, color = s.muted, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp).semantics { heading() })
             StationSwitcher(favorites, selected, onPick)
-            // Trouble on this station or its lines, said once, where the trains are: tap for the full alert.
+            // What PATH is saying about this station, right where its trains are: one line each, tap to read.
             val here = Alerts.at(favorites[selected].station, alerts)
             Column(Modifier.animateContentSize(Motion.resize)) {
                 if (here.isNotEmpty()) {
                     Spacer(Modifier.height(10.dp))
-                    AlertBanner(here, onAlerts)
+                    AlertsBlock(here)
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -190,28 +193,15 @@ internal fun Home(
     }
 }
 
-/** One line saying there is an alert for this station, leading to the Alerts tab. */
-@Composable
-private fun AlertBanner(alerts: List<Alert>, onClick: () -> Unit) {
-    val s = SwissTheme.colors
-    val first = alerts.first()
-    Surface(onClick = onClick, shape = RoundedCornerShape(14.dp), color = s.block, contentColor = s.ink, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(painterResource(R.drawable.ic_tab_alerts), contentDescription = "Alert", tint = if (Alerts.disrupts(alerts)) s.alert else s.muted, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
-            Text(first.title, style = Type.bodyBold.copy(fontSize = 14.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (alerts.size > 1) Text("+${alerts.size - 1}", style = Type.label.copy(fontSize = 11.sp), color = s.muted, modifier = Modifier.padding(start = 8.dp))
-            Icon(painterResource(R.drawable.ic_chevron), contentDescription = null, tint = s.muted, modifier = Modifier.padding(start = 6.dp).size(16.dp))
-        }
-    }
-}
-
 /** Your stations as big blocks: filled is the one shown. Two or three share the width; more scroll. */
 @Composable
 private fun StationSwitcher(favorites: List<Favorite>, selected: Int, onPick: (Int) -> Unit) {
     if (favorites.size < 2) return
     val fits = favorites.size <= 2
     val row = if (fits) Modifier.fillMaxWidth() else Modifier.horizontalScroll(rememberScrollState())
+    // With more favorites than fit, the one you pick slides fully into view rather than staying half off the edge.
+    val places = remember(favorites.size) { List(favorites.size) { BringIntoViewRequester() } }
+    LaunchedEffect(selected, favorites.size) { places.getOrNull(selected)?.bringIntoView() }
     Row(row, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         favorites.forEachIndexed { i, f ->
             StationBlock(
@@ -219,7 +209,7 @@ private fun StationSwitcher(favorites: List<Favorite>, selected: Int, onPick: (I
                 subtitle = f.subtitle.uppercase(),
                 selected = i == selected,
                 onClick = { onPick(i) },
-                modifier = if (fits) Modifier.weight(1f) else Modifier.widthIn(min = 120.dp),
+                modifier = (if (fits) Modifier.weight(1f) else Modifier.widthIn(min = 120.dp)).bringIntoViewRequester(places[i]),
             )
         }
     }
@@ -323,13 +313,15 @@ private fun Hero(board: Board, now: Long, height: Int) {
                 else -> 22
             }
             Text(dest, style = Type.title.copy(fontSize = destSize.sp, lineHeight = (destSize + 4).sp), color = ink, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(0.72f))
+            // Under the destination, in the top-left with the other words: the big number or NOW owns
+            // the bottom of the card and, at any width, cannot run into this line.
+            Text(
+                (if (minutes == 0L) "LEAVING · " else "MIN · LEAVES ") + TimeText.clock(next.atMs),
+                style = Type.label,
+                color = ink.copy(alpha = 0.8f),
+                modifier = Modifier.padding(top = 6.dp),
+            )
         }
-        Text(
-            (if (minutes == 0L) "LEAVING · " else "MIN · LEAVES ") + TimeText.clock(next.atMs),
-            style = Type.label,
-            color = ink.copy(alpha = 0.8f),
-            modifier = Modifier.align(Alignment.BottomStart).padding(start = 22.dp, bottom = 20.dp),
-        )
     }
 }
 

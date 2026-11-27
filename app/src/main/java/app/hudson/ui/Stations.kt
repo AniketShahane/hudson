@@ -74,6 +74,7 @@ import app.hudson.core.Line
 import app.hudson.core.Network
 import app.hudson.core.Side
 import app.hudson.core.Station
+import app.hudson.data.Locator
 import app.hudson.data.feed.FeedSnapshot
 import app.hudson.domain.Alert
 import app.hudson.domain.Alerts
@@ -107,8 +108,8 @@ internal fun Modifier.arrive(index: Int): Modifier {
 @Composable
 internal fun StationsScreen(
     feed: FeedSnapshot?, now: Long, alerts: List<Alert>,
-    here: Pair<Double, Double>?, locating: Boolean,
-    onFindNearest: () -> Unit, onStation: (Station) -> Unit,
+    near: Locator.Result?, locating: Boolean,
+    onNear: () -> Unit, onStation: (Station) -> Unit,
 ) {
     val s = SwissTheme.colors
     var map by rememberSaveable { mutableStateOf(false) }
@@ -136,7 +137,7 @@ internal fun StationsScreen(
                     SectionLabel("LINES")
                     Line.entries.forEachIndexed { i, line -> LineStatus(line, alerts, Modifier.arrive(i)) }
                 } else {
-                    Nearest(here, locating, feed, now, alerts, onFindNearest, onStation)
+                    NearYou(near, locating, feed, now, alerts, onNear, onStation)
                     var index = 1
                     for (side in Side.entries) {
                         SectionLabel(if (side == Side.NJ) "NEW JERSEY" else "NEW YORK")
@@ -167,26 +168,44 @@ private fun Toggle(text: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** The station closest to you, once you have allowed an approximate location; otherwise an offer to find it. */
+/**
+ * The stations near you. A phone's position can be a couple of kilometres off, so rather than
+ * name one station and risk being wrong, every station that could be the nearest is listed with
+ * its distance. Whatever stops a position being found is said plainly, with the way to fix it.
+ */
 @Composable
-private fun Nearest(here: Pair<Double, Double>?, locating: Boolean, feed: FeedSnapshot?, now: Long, alerts: List<Alert>, onFind: () -> Unit, onStation: (Station) -> Unit) {
+private fun NearYou(near: Locator.Result?, locating: Boolean, feed: FeedSnapshot?, now: Long, alerts: List<Alert>, onNear: () -> Unit, onStation: (Station) -> Unit) {
     val s = SwissTheme.colors
-    val near = here?.let { Geo.nearest(it.first, it.second) }
     Column(Modifier.animateContentSize(Motion.resize)) {
-        when {
-            near != null -> {
-                SectionLabel("NEAREST · ABOUT ${Geo.distance(near.second).uppercase()}")
-                Box(Modifier.clip(RoundedCornerShape(20.dp)).background(s.block).padding(horizontal = 12.dp)) {
-                    StationRow(near.first, feed, now, Alerts.disrupts(Alerts.at(near.first, alerts)), null, { onStation(near.first) })
+        @Composable
+        fun problem(text: String, button: String) {
+            SectionLabel("NEAR YOU")
+            Text(text, style = Type.body.copy(fontSize = 14.sp, lineHeight = 20.sp), color = s.ink, modifier = Modifier.padding(start = 4.dp, bottom = 10.dp))
+            OutlineBlock(button, R.drawable.ic_near, onNear)
+        }
+        when (near) {
+            is Locator.Result.Found -> {
+                val fix = near.fix
+                val stations = Geo.near(fix.lat, fix.lon, fix.accuracyMetres)
+                val rough = fix.accuracyMetres > 400 || fix.ageMs > 10 * 60_000
+                SectionLabel(if (rough) "NEAR YOU · APPROXIMATE" else "NEAR YOU")
+                if (stations.isEmpty()) {
+                    Text("You are not near a PATH station.", style = Type.body.copy(fontSize = 14.sp), color = s.muted, modifier = Modifier.padding(start = 4.dp))
+                } else {
+                    Column(Modifier.clip(RoundedCornerShape(20.dp)).background(s.block).padding(horizontal = 12.dp)) {
+                        stations.forEachIndexed { i, (station, metres) ->
+                            if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
+                            StationRow(station, feed, now, Alerts.disrupts(Alerts.at(station, alerts)), "ABOUT ${Geo.distance(metres).uppercase()}", { onStation(station) })
+                        }
+                    }
                 }
             }
-            here != null -> {
-                SectionLabel("NEAREST")
-                Text("You are not near a PATH station.", style = Type.body.copy(fontSize = 14.sp), color = s.muted, modifier = Modifier.padding(start = 4.dp))
-            }
-            else -> {
+            Locator.Result.NotAllowed -> problem("Hudson is not allowed to see where you are.", "ALLOW LOCATION")
+            Locator.Result.SwitchedOff -> problem("Location is switched off on this phone.", "TURN ON LOCATION")
+            Locator.Result.NoFix -> problem("Could not find where you are just now. This can happen indoors or underground.", if (locating) "LOOKING…" else "TRY AGAIN")
+            null -> {
                 Spacer(Modifier.height(8.dp))
-                OutlineBlock(if (locating) "FINDING YOU…" else "FIND MY NEAREST STATION", R.drawable.ic_near, onFind)
+                OutlineBlock(if (locating) "FINDING YOU…" else "FIND STATIONS NEAR ME", R.drawable.ic_near, onNear)
             }
         }
     }
@@ -199,6 +218,7 @@ internal fun StationRow(station: Station, feed: FeedSnapshot?, now: Long, hasAle
     val next = Network.directions(station).associateWith { departures(station, it, feed, now, 1).firstOrNull() }
     val said = buildString {
         append(station.title)
+        if (note != null) append(", ").append(note.lowercase())
         next.forEach { (d, t) -> append(", to ${d.title} ").append(t?.let { TimeText.countdown(it.atMs, now) } ?: "no train listed") }
         if (hasAlert) append(", service alert")
     }
@@ -238,15 +258,19 @@ internal fun StationRow(station: Station, feed: FeedSnapshot?, now: Long, hasAle
     }
 }
 
+/** A line and what PATH is saying about it, if anything. */
 @Composable
 private fun LineStatus(line: Line, alerts: List<Alert>, modifier: Modifier = Modifier) {
     val s = SwissTheme.colors
-    val trouble = alerts.filter { line in it.lines && it.kind == app.hudson.domain.AlertKind.SERVICE }
-    Row(modifier.fillMaxWidth().height(52.dp).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(width = 8.dp, height = 30.dp).clip(RoundedCornerShape(2.dp)).background(Color(line.color.toInt())))
-        Spacer(Modifier.width(14.dp))
-        Text(line.title, style = Type.bodyBold.copy(fontSize = 15.sp), color = s.ink, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(if (trouble.isEmpty()) "NO ALERTS" else "SEE ALERTS", style = Type.label.copy(fontSize = 10.sp), color = if (trouble.isEmpty()) s.muted else s.alert)
+    val about = Alerts.on(line, alerts)
+    Column(modifier.animateContentSize(Motion.resize)) {
+        Row(Modifier.fillMaxWidth().height(52.dp).semantics(mergeDescendants = true) {}, verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(width = 8.dp, height = 30.dp).clip(RoundedCornerShape(2.dp)).background(Color(line.color.toInt())))
+            Spacer(Modifier.width(14.dp))
+            Text(line.title, style = Type.bodyBold.copy(fontSize = 15.sp), color = s.ink, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (about.isEmpty()) "NO ALERTS" else if (about.size == 1) "1 ALERT" else "${about.size} ALERTS", style = Type.label.copy(fontSize = 10.sp), color = if (about.isEmpty()) s.muted else s.alert)
+        }
+        if (about.isNotEmpty()) AlertsBlock(about, Modifier.padding(bottom = 8.dp))
     }
 }
 
@@ -386,15 +410,9 @@ internal fun StationScreen(
                 }
             }
         }
-        // Alerts for this station stay one line each until opened, so the trains are never pushed off the screen.
         if (alerts.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
-            Column(Modifier.arrive(0).clip(RoundedCornerShape(18.dp)).background(s.block)) {
-                alerts.forEachIndexed { i, alert ->
-                    if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(s.rule))
-                    AlertRow(alert, flagged = alert.kind == app.hudson.domain.AlertKind.SERVICE)
-                }
-            }
+            AlertsBlock(alerts, Modifier.arrive(0))
         }
         var row = 2
         for (direction in Network.directions(station)) {
@@ -411,7 +429,7 @@ internal fun StationScreen(
                     Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(painterResource(if (saved) R.drawable.ic_check else R.drawable.ic_add), contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (saved) "IN MY TRAINS" else "MY TRAINS", style = Type.label.copy(fontSize = 11.sp))
+                        Text(if (saved) "IN FAVORITES" else "ADD TO FAVORITES", style = Type.label.copy(fontSize = 11.sp))
                     }
                 }
             }
