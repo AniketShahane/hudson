@@ -54,6 +54,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -429,15 +431,10 @@ internal fun SettingsScreen(
         Note("Applies to the app and the widget.")
 
         SectionLabel("LOCK SCREEN TRACKING")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(15, 30, 45, 60).forEach { m ->
-                StationBlock(title = "$m MIN", subtitle = "", selected = settings.liveMinutes == m, onClick = { onMinutes(m) }, modifier = Modifier.weight(1f))
-            }
-        }
-        Note("How long a train stays on your lock screen after you tap Track.")
-        if (Build.VERSION.SDK_INT >= 36 && !LiveNotifier.canPromote(context)) {
-            Spacer(Modifier.height(10.dp))
-            Group {
+        Group {
+            TrackingLength(settings.liveMinutes, onMinutes)
+            if (Build.VERSION.SDK_INT >= 36 && !LiveNotifier.canPromote(context)) {
+                Hairline()
                 SettingRow("Allow on the lock screen", "Off in Android's settings: tracking shows only in notifications") { LiveNotifier.openPromotionSettings(context) }
             }
         }
@@ -479,6 +476,46 @@ internal fun SettingsScreen(
             "HUDSON ${appVersion(context)}", style = Type.label.copy(fontSize = 11.sp), color = s.muted, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 24.dp),
         )
+    }
+}
+
+/** How long tracking lasts: one row showing the choice, opening a short menu of the others. */
+@Composable
+private fun TrackingLength(minutes: Int, onPick: (Int) -> Unit) {
+    val s = SwissTheme.colors
+    var open by remember { mutableStateOf(false) }
+    val turn by animateFloatAsState(if (open) -90f else 90f, tween(200), label = "menu arrow")
+    Box {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClickLabel = "Change how long tracking lasts") { open = true }.heightIn(min = 68.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp).semantics(mergeDescendants = true) {},
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Track for", style = Type.bodyBold.copy(fontSize = 16.sp), color = s.ink)
+                Text("How long a train stays on your lock screen", style = Type.body.copy(fontSize = 13.sp, lineHeight = 18.sp), color = s.muted)
+            }
+            Text("$minutes MIN", style = Type.block.copy(fontSize = 15.sp), color = s.ink, modifier = Modifier.padding(start = 10.dp))
+            Icon(painterResource(R.drawable.ic_chevron), contentDescription = null, tint = s.muted, modifier = Modifier.padding(start = 8.dp).size(18.dp).rotate(turn))
+        }
+        // Anchored to the right, under the value it changes.
+        Box(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp)) {
+            DropdownMenu(
+                expanded = open, onDismissRequest = { open = false },
+                containerColor = s.paper, shape = RoundedCornerShape(18.dp), border = BorderStroke(2.dp, s.ink),
+            ) {
+                listOf(15, 30, 45, 60).forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text("$option minutes", style = Type.bodyBold.copy(fontSize = 16.sp), color = s.ink) },
+                        trailingIcon = {
+                            if (option == minutes) Icon(painterResource(R.drawable.ic_check), contentDescription = "Selected", tint = s.ink, modifier = Modifier.size(18.dp))
+                        },
+                        onClick = { open = false; onPick(option) },
+                        modifier = Modifier.heightIn(min = 52.dp).widthIn(min = 190.dp),
+                    )
+                }
+            }
+        }
     }
 }
 
